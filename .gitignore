@@ -54,3 +54,5 @@ dkms.conf
 /build
 zu
 z.u
+/src/build
+.DS_Store
