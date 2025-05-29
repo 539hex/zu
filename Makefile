@@ -1,8 +1,15 @@
 # Compiler and compiler flags
 CC = gcc
-CFLAGS = -Wall -g -std=c11 -O2 -Isrc
+
+GLOBAL_CFLAGS = -Wall -g -O2 -Isrc
+ifeq ($(shell uname -s),Linux)
+  CFLAGS = $(GLOBAL_CFLAGS) -std=gnu11 
+else
+  CFLAGS = $(GLOBAL_CFLAGS) -std=c11 
+endif
+
 # Add -lreadline for readline library
-LDFLAGS = -lreadline
+LDFLAGS = -lreadline 
 # Add -lrt on Linux if clock_gettime requires it
 
 # Define the source directory
@@ -32,7 +39,7 @@ VPATH = $(SRC_DIR)
 all: $(EXEC)
 
 # Rule to link the executable
-$(EXEC): $(OBJS)
+$(EXEC): $(OBJS) src/config.h
 	$(CC) $(CFLAGS) $(OBJS) -o $(EXEC) $(LDFLAGS)
 
 # Generic pattern rule to compile .c files into .o files.
