@@ -1,2 +1,153 @@
-# zu
+# ⚡ Zu - The Lightweight Key-Value Store
 
+[![License](https://img.shields.io/badge/license-BSD--2--Clause-blue.svg)](LICENSE)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/version-0.1.0--alpha-orange.svg)]()
+
+> 🚧
+> **Alpha Release - Active Development**
+>
+> This project is currently in alpha stage with ongoing development. It's suitable for experimentation, learning, and development environments. Contributions and feedback are welcome as we work toward a stable release.
+
+## Overview
+
+Zu is a lightweight, fast command-line key-value store implemented in C that combines persistent disk storage with in-memory caching. It automatically caches items on their first access and maintains a fixed-size cache using LRU (Least Recently Used) eviction policy. All data is persistently stored in a local binary file, while frequently accessed items are kept in memory for faster retrieval.
+
+## Key Features
+
+- **Persistent Storage**: Data is automatically saved to and loaded from a binary file (`z.u`)
+- **Memory Cache**: Items are cached on first access with LRU eviction when cache is full
+- **Command-Line Interface**: Simple, intuitive commands for all operations
+- **Performance Monitoring**: Built-in execution time measurement for each operation
+- **Lightweight Design**: Minimal resource footprint with efficient C implementation
+
+## Commands
+
+| Command              | Description                                                 |
+| -------------------- | ----------------------------------------------------------- |
+| `zset <key> <value>` | Store or update a key-value pair                            |
+| `zget <key>`         | Retrieve the value for a given key (caches on first access) |
+| `zrm <key>`          | Remove a key-value pair (from both cache and disk)          |
+| `zall`               | List all stored key-value pairs                             |
+| `cache_status`       | Show current cache contents and usage statistics            |
+| `init_db`            | Initialize the database with random key-value pairs         |
+| `help`               | Display available commands                                  |
+| `exit` / `quit`      | Exit the program                                            |
+
+## Installation
+
+### Prerequisites
+
+- C compiler (GCC recommended)
+- Make utility
+- POSIX-compliant system (Linux, macOS, WSL)
+
+### Build Instructions
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/539hex/zu.git
+   cd zu
+   ```
+
+2. Compile the project:
+
+   ```bash
+   make
+   ```
+
+   This creates an optimized executable named `zu` in the root directory.
+
+3. Run the program:
+   ```bash
+   ./zu
+   ```
+
+## Usage Example
+
+```bash
+$ ./zu
+Zu v0.1.0-alpha
+Type 'help' for available commands.
+
+> zset name "John Doe"
+OK
+(0.12ms)
+
+> zget name
+John Doe
+(0.08ms)
+
+> cache_status
+Cache status: 1/1000 items used
+  [0] Key: name, Value: John Doe, Hits: 1, Last accessed: 1234567890
+
+> zall
+name: John Doe
+Total keys: 1
+(0.15ms)
+
+> exit
+Goodbye!
+```
+
+## Project Structure
+
+```
+zu/
+├── Makefile          # Build configuration
+├── README.md         # Project documentation
+├── LICENSE           # License file
+├── src/              # Source code directory
+│   ├── zu.c          # Main program entry point
+│   ├── *.c           # C files
+│   └── *.h           # Header files
+└── zu                # Compiled executable (after build)
+```
+
+## Configuration
+
+The system can be configured by modifying the following parameters in `src/config.h`:
+
+### Cache Settings
+
+- **CACHE_SIZE**: Maximum number of items that can be stored in the memory cache (default: 1000)
+- **Caching Behavior**:
+  - Items are cached on their first access (get operation)
+  - Uses LRU (Least Recently Used) eviction when cache is full
+  - Cache entries track hit count and last access time
+  - Cache is cleared on program exit
+
+### Database Settings
+
+- **FILENAME**: Name of the database file (default: "z.u")
+- **INIT_DB_SIZE**: Number of random key-value pairs to create when initializing the database (default: 5)
+- **MIN_LENGTH**: Minimum length for generated keys and values (default: 4)
+- **MAX_LENGTH**: Maximum length for generated keys and values (default: 64)
+
+These settings can be modified before compilation to adjust the behavior of the system. For example, increasing `CACHE_SIZE` will allow more items to be cached in memory, while decreasing it will make the cache more aggressive in evicting items.
+
+## Roadmap
+
+- [ ] Support for different data types
+- [ ] Network interface (TCP/HTTP)
+- [ ] Atomic operations and transactions
+- [ ] Comprehensive test suite
+- [ ] Performance benchmarking tools
+- [ ] Data compression options
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
+
+## License
+
+This project is licensed under the BSD 2-Clause License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- Inspired by the amazing [Redis](https://github.com/redis/redis)
+- Built with performance and simplicity in mind
+
+---
