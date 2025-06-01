@@ -8,7 +8,8 @@ typedef struct
 {
     char *key;
     char *value;
-    unsigned int hit_count;
+    unsigned int hit_count;     // Hit count for caching
+    unsigned int last_accessed; // Timestamp of last access
 } DataItem;
 
 // --- Helper Function Declarations ---

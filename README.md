@@ -1,4 +1,4 @@
-# ⚡ Zu - The Adaptive Cache Store
+# ⚡ Zu - The Lightweight Key-Value Store
 
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-blue.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
@@ -11,27 +11,28 @@
 
 ## Overview
 
-Zu is a lightweight, command-line key-value store implemented in C that combines persistent disk storage with intelligent in-memory caching. It automatically identifies frequently accessed "hot" keys and caches them for improved performance, while maintaining data persistence through a local binary file.
+Zu is a lightweight, fast command-line key-value store implemented in C that combines persistent disk storage with in-memory caching. It automatically caches items on their first access and maintains a fixed-size cache using LRU (Least Recently Used) eviction policy. All data is persistently stored in a local binary file, while frequently accessed items are kept in memory for faster retrieval.
 
 ## Key Features
 
 - **Persistent Storage**: Data is automatically saved to and loaded from a binary file (`z.u`)
-- **Intelligent Caching**: Frequently accessed keys are cached in memory for faster retrieval
+- **Memory Cache**: Items are cached on first access with LRU eviction when cache is full
 - **Command-Line Interface**: Simple, intuitive commands for all operations
 - **Performance Monitoring**: Built-in execution time measurement for each operation
 - **Lightweight Design**: Minimal resource footprint with efficient C implementation
 
 ## Commands
 
-| Command              | Description                                            |
-| -------------------- | ------------------------------------------------------ |
-| `zset <key> <value>` | Store or update a key-value pair                       |
-| `zget <key>`         | Retrieve the value for a given key                     |
-| `zrm <key>`          | Remove a key-value pair                                |
-| `zall`               | List all stored pairs with hit counts and cache status |
-| `init_db`            | Initialize the database with random key-value pairs    |
-| `help`               | Display available commands                             |
-| `exit` / `quit`      | Save data and exit the program                         |
+| Command              | Description                                                 |
+| -------------------- | ----------------------------------------------------------- |
+| `zset <key> <value>` | Store or update a key-value pair                            |
+| `zget <key>`         | Retrieve the value for a given key (caches on first access) |
+| `zrm <key>`          | Remove a key-value pair (from both cache and disk)          |
+| `zall`               | List all stored key-value pairs                             |
+| `cache_status`       | Show current cache contents and usage statistics            |
+| `init_db`            | Initialize the database with random key-value pairs         |
+| `help`               | Display available commands                                  |
+| `exit` / `quit`      | Exit the program                                            |
 
 ## Installation
 
@@ -75,13 +76,15 @@ OK
 (0.12ms)
 
 > zget name
-"John Doe"
-[COLD, hits: 1]
+John Doe
 (0.08ms)
 
+> cache_status
+Cache status: 1/1000 items used
+  [0] Key: name, Value: John Doe, Hits: 1, Last accessed: 1234567890
 
 > zall
-name: "John Doe" [COLD, hits: 1]
+name: John Doe
 Total keys: 1
 (0.15ms)
 
@@ -105,9 +108,25 @@ zu/
 
 ## Configuration
 
-The caching system uses configurable thresholds for determining "hot" keys. These can be modified in the source code before compilation:
+The system can be configured by modifying the following parameters in `src/config.h`:
 
-- **HIT_THRESHOLD_FOR_CACHING**: Number of accesses required for a key to be cached
+### Cache Settings
+
+- **CACHE_SIZE**: Maximum number of items that can be stored in the memory cache (default: 1000)
+- **Caching Behavior**:
+  - Items are cached on their first access (get operation)
+  - Uses LRU (Least Recently Used) eviction when cache is full
+  - Cache entries track hit count and last access time
+  - Cache is cleared on program exit
+
+### Database Settings
+
+- **FILENAME**: Name of the database file (default: "z.u")
+- **INIT_DB_SIZE**: Number of random key-value pairs to create when initializing the database (default: 5)
+- **MIN_LENGTH**: Minimum length for generated keys and values (default: 4)
+- **MAX_LENGTH**: Maximum length for generated keys and values (default: 64)
+
+These settings can be modified before compilation to adjust the behavior of the system. For example, increasing `CACHE_SIZE` will allow more items to be cached in memory, while decreasing it will make the cache more aggressive in evicting items.
 
 ## Roadmap
 

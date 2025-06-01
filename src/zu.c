@@ -23,7 +23,7 @@ int main(void)
     printf("Zu %s\n", ZU_VERSION);
     // HIT_THRESHOLD_FOR_CACHING is extern from zu_config.h, defined in zu_cache.c
     printf("Type 'help' for available commands. \n");
-
+    // Allocate memory for cache
     // Initialize readline history
     using_history();
 
@@ -128,6 +128,28 @@ int main(void)
                 printf("Usage: init_db");
             }
         }
+        else if (strcmp(command_token, "cache_status") == 0)
+        {
+            if (strtok(NULL, " \t") == NULL)
+            { // No extra arguments
+                cache_status();
+            }
+            else
+            {
+                printf("Usage: cache_status");
+            }
+        }
+        else if (strcmp(command_token, "cleanup_db") == 0)
+        {
+            if (strtok(NULL, " \t") == NULL)
+            { // No extra arguments
+                cleanup_db_command();
+            }
+            else
+            {
+                printf("Usage: cleanup_db");
+            }
+        }
         else if (strcmp(command_token, "exit") == 0 || strcmp(command_token, "quit") == 0)
         {
             exec_time = zu_timer_end(&timer_val); // Stop timer for 'exit'
@@ -143,6 +165,8 @@ int main(void)
             printf("  zrm <key>          - Remove a key\n");
             printf("  zall               - List all key-value pairs\n");
             printf("  init_db            - Init DB with random key-value pairs\n");
+            printf("  cleanup_db         - Remove duplicate keys from database\n");
+            printf("  cache_status       - Show cache status\n");
             printf("  exit/quit          - Exit the program\n");
             printf("  help               - Show this help\n");
             exec_time = zu_timer_end(&timer_val);
@@ -162,7 +186,6 @@ int main(void)
     }
 
     // Clean up readline history
-    clear_history();
-    free_global_cache(); // Free global cache before terminating
+    clear_history(); // Free global cache before terminating
     return 0;
 }

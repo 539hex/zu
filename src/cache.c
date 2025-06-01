@@ -1,86 +1,121 @@
 #include "cache.h"
 #include "config.h"
 #include "ds.h"
-#include "io.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 
 // Definition of global cache variables
 DataItem *memory_cache = NULL;
-size_t cache_size = 0;
-size_t cache_capacity = 0;
+int cache_size = 0;  // Current number of items in cache
 
-// Definition of the global configuration variable
-unsigned int HIT_THRESHOLD_FOR_CACHING = 2;
-
-void add_or_update_in_memory_cache(const char *key, const char *value, unsigned int hit_count)
+void add_or_update_in_memory_cache(const char *key, const char *value)
 {
+    if (!memory_cache) {
+        // Initialize cache with CACHE_SIZE entries
+        memory_cache = calloc(CACHE_SIZE, sizeof(DataItem));
+        if (!memory_cache) {
+            printf("Error: Failed to allocate memory cache\n");
+            return;
+        }
+    }
+
+    // First try to find and update existing key
     for (size_t i = 0; i < cache_size; i++)
     {
-        if (strcmp(memory_cache[i].key, key) == 0)
+        if (memory_cache[i].key && strcmp(memory_cache[i].key, key) == 0)
         {
             free(memory_cache[i].value);
             memory_cache[i].value = my_strdup(value);
-            memory_cache[i].hit_count = hit_count;
-            if (!memory_cache[i].value)
-            { // my_strdup might fail
+            if (memory_cache[i].value)
+            {
+                memory_cache[i].last_accessed = time(NULL); // Update last accessed time
+                memory_cache[i].hit_count++; // Increment hit count
+            }
+            else
+            {
                 perror("Failed to allocate memory for updated cache value");
-                // It might be necessary to remove the item or handle the error
+                free_data_item_contents(&memory_cache[i]);
             }
             return;
         }
     }
-    // Not found, add new
-    ensure_list_capacity(&memory_cache, &cache_capacity, cache_size + 1);
-    memory_cache[cache_size].key = my_strdup(key);
-    memory_cache[cache_size].value = my_strdup(value);
-    memory_cache[cache_size].hit_count = hit_count;
-    if (!memory_cache[cache_size].key || !memory_cache[cache_size].value)
-    {
-        perror("Failed to allocate memory for new cache entry");
-        free_data_item_contents(&memory_cache[cache_size]); // Clean partially allocated
-        // Do not increment cache_size if allocation fails
-        return;
+
+    // Not found, add new if we have space
+    if (cache_size < CACHE_SIZE) {
+        memory_cache[cache_size].key = my_strdup(key);
+        memory_cache[cache_size].value = my_strdup(value);
+        if (memory_cache[cache_size].key && memory_cache[cache_size].value) {
+            memory_cache[cache_size].hit_count = 1;
+            memory_cache[cache_size].last_accessed = time(NULL);
+            cache_size++;
+        } else {
+            free_data_item_contents(&memory_cache[cache_size]);
+            printf("Failed to add to cache: memory allocation failed\n");
+        }
+    } else {
+        // Cache is full, implement LRU eviction
+        int oldest_idx = 0;
+        time_t oldest_time = memory_cache[0].last_accessed;
+        
+        // Find least recently used item
+        for (int i = 1; i < cache_size; i++) {
+            if (memory_cache[i].last_accessed < oldest_time) {
+                oldest_time = memory_cache[i].last_accessed;
+                oldest_idx = i;
+            }
+        }
+        
+        // Replace the oldest item
+        free_data_item_contents(&memory_cache[oldest_idx]);
+        memory_cache[oldest_idx].key = my_strdup(key);
+        memory_cache[oldest_idx].value = my_strdup(value);
+        if (memory_cache[oldest_idx].key && memory_cache[oldest_idx].value) {
+            memory_cache[oldest_idx].hit_count = 1;
+            memory_cache[oldest_idx].last_accessed = time(NULL);
+        } else {
+            free_data_item_contents(&memory_cache[oldest_idx]);
+            printf("Failed to replace cache item: memory allocation failed\n");
+        }
     }
-    cache_size++;
 }
 
 void remove_from_memory_cache(const char *key)
 {
+    if (!memory_cache || !key) return;
+
     for (size_t i = 0; i < cache_size; i++)
     {
-        if (strcmp(memory_cache[i].key, key) == 0)
+        if (memory_cache[i].key && strcmp(memory_cache[i].key, key) == 0)
         {
             free_data_item_contents(&memory_cache[i]);
-            // Move the last element to this position to fill the gap
-            if (i < cache_size - 1)
-            {
+            
+            // If this wasn't the last item, move the last item here
+            if (i < cache_size - 1) {
                 memory_cache[i] = memory_cache[cache_size - 1];
-                // Invalidate the last element to avoid double free if DataItem contained pointers not managed by free_data_item_contents
+                // Clear the last item to avoid double free
                 memory_cache[cache_size - 1].key = NULL;
                 memory_cache[cache_size - 1].value = NULL;
             }
+            
             cache_size--;
-            // Optional: resize buffer if cache_size is much smaller than cache_capacity
+            printf("Removed from cache (current size: %d/%d)\n", cache_size, CACHE_SIZE);
             return;
-        }
-    }
-}
-
-void rebuild_memory_cache(DataItem *full_data_list, size_t list_size)
-{
-    free_data_list(&memory_cache, &cache_size, &cache_capacity);
-    for (size_t i = 0; i < list_size; i++)
-    {
-        if (full_data_list[i].hit_count >= HIT_THRESHOLD_FOR_CACHING)
-        {
-            add_or_update_in_memory_cache(full_data_list[i].key, full_data_list[i].value, full_data_list[i].hit_count);
         }
     }
 }
 
 void free_global_cache(void)
 {
-    free_data_list(&memory_cache, &cache_size, &cache_capacity);
+    if (memory_cache) {
+        // Free all items in the cache
+        for (int i = 0; i < cache_size; i++) {
+            free_data_item_contents(&memory_cache[i]);
+        }
+        free(memory_cache);
+        memory_cache = NULL;
+        cache_size = 0;
+    }
 }
+

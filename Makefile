@@ -2,7 +2,11 @@
 CC = gcc
 
 GLOBAL_CFLAGS = -Wall -g -O2 -Isrc
-ifeq ($(shell uname -s),Linux)
+
+# Check the operating system and set CFLAGS accordingly
+# If on Linux, use -std=gnu11, otherwise use -std=c11
+# This allows for GNU extensions on Linux, while using strict C11 on other systems.
+ifeq ($(shell uname -s), Linux)
   CFLAGS = $(GLOBAL_CFLAGS) -std=gnu11 
 else
   CFLAGS = $(GLOBAL_CFLAGS) -std=c11 

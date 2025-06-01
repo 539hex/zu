@@ -30,21 +30,6 @@ void free_data_item_contents(DataItem *item)
     }
 }
 
-void free_data_list(DataItem **list, size_t *size, size_t *capacity)
-{
-    if (*list != NULL)
-    {
-        for (size_t i = 0; i < *size; i++)
-        {
-            free_data_item_contents(&(*list)[i]);
-        }
-        free(*list);
-        *list = NULL;
-    }
-    *size = 0;
-    *capacity = 0;
-}
-
 void ensure_list_capacity(DataItem **list, size_t *capacity, size_t needed_size)
 {
     if (*capacity < needed_size)

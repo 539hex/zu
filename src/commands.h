@@ -7,5 +7,7 @@ void zget_command(const char *key_to_get);
 void zrm_command(const char *key_to_remove);
 void zall_command(void);
 void init_db_command(void);
+void cleanup_db_command(void);
+void cache_status(void);
 
 #endif // COMMANDS_H

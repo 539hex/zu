@@ -7,15 +7,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-
+#include <time.h>
 
 // --- zset command ---
 void zset_command(const char *key_to_set, const char *value_to_set)
 {
-
     char *old_value = NULL;
-    unsigned int old_hit_count;
-    int result = find_key_on_disk(key_to_set, &old_value, &old_hit_count);
+    int result = find_key_on_disk(key_to_set, &old_value);
 
     if (result < 0)
     {
@@ -26,7 +24,7 @@ void zset_command(const char *key_to_set, const char *value_to_set)
     if (result == 0)
     {
         // Key doesn't exist, append new key-value pair
-        if (append_key_to_disk(key_to_set, value_to_set, 0) <= 0)
+        if (append_key_to_disk(key_to_set, value_to_set) <= 0)
         {
             printf("Error: Failed to set new key.\n");
             return;
@@ -34,49 +32,82 @@ void zset_command(const char *key_to_set, const char *value_to_set)
         printf("OK\n");
         return;
     }
+
+    // Key exists, update its value
+    if (old_value) {
+        free(old_value);  // Free the old value we got from find_key_on_disk
+    }
+
+    // Remove the old key-value pair
+    if (remove_key_from_disk(key_to_set) < 0) {
+        printf("Error: Could not remove old key-value pair.\n");
+        return;
+    }
+
+    // Add the new key-value pair
+    if (append_key_to_disk(key_to_set, value_to_set) <= 0) {
+        printf("Error: Failed to update key.\n");
+        return;
+    }
+
+    printf("OK\n");
 }
 
 // --- zget command ---
 void zget_command(const char *key_to_get)
 {
     // Search in cache first
-    for (size_t i = 0; i < cache_size; i++)
+    if (memory_cache == NULL) {
+        memory_cache = calloc(CACHE_SIZE, sizeof(DataItem));
+        if (!memory_cache) {
+            printf("Error: Failed to allocate memory cache\n");
+            return;
+        }
+    }
+
+    for (int i = 0; i < cache_size; i++)
     {
-        if (strcmp(memory_cache[i].key, key_to_get) == 0)
+        if (memory_cache[i].key && strcmp(memory_cache[i].key, key_to_get) == 0)
         {
-            memory_cache[i].hit_count++;
-            const char *status = (memory_cache[i].hit_count >= HIT_THRESHOLD_FOR_CACHING) ? "HOT" : "COLD";
-            printf("%s\n[%s, hits: %u]", memory_cache[i].value, status, memory_cache[i].hit_count);
+            memory_cache[i].hit_count++;                // Increment hit count
+            memory_cache[i].last_accessed = time(NULL); // Update last accessed time
+            printf("%s\n", memory_cache[i].value);
             return;
         }
     }
 
     // Not in cache, search on disk
     char *value = NULL;
-    unsigned int hit_count;
-    int result = find_key_on_disk(key_to_get, &value, &hit_count);
+    int result = find_key_on_disk(key_to_get, &value);
 
     if (result < 0)
     {
-        printf("Key '%s' not found (file error during search).\n", key_to_get);
+        printf("Error: Could not access data.\n");
         return;
     }
     else if (result == 0)
     {
-        printf("Key '%s' not found.", key_to_get);
+        printf("Key '%s' not found.\n", key_to_get);
         return;
     }
 
-    // Always show COLD status when reading from disk
-    printf("%s \n[COLD, hits: %u]", value, hit_count);
-
-    // If it reaches threshold, add to cache for next time
-    if (hit_count >= HIT_THRESHOLD_FOR_CACHING)
-    {
-        add_or_update_in_memory_cache(key_to_get, value, hit_count);
+    // Make a copy of the value before adding to cache
+    char *value_copy = my_strdup(value);
+    if (!value_copy) {
+        printf("Error: Failed to allocate memory for value copy.\n");
+        free(value);
+        return;
     }
 
+    // Add to cache using the copy
+    add_or_update_in_memory_cache(key_to_get, value_copy);
+    
+    // Print the value
+    printf("%s\n", value_copy);
+    
+    // Now we can safely free the original value
     free(value);
+    // Note: value_copy is now owned by the cache and will be freed when the cache is cleared
 }
 
 // --- zrm command ---
@@ -111,24 +142,99 @@ void zall_command()
     }
 }
 
-void init_db_command() {
-    #define KEY_VALUE_LENGTH 32
+void cleanup_db_command(void)
+{
+    printf("Cleaning up database to remove duplicate keys...\n");
+    int result = cleanup_duplicate_keys();
+    if (result < 0)
+    {
+        printf("Error: Could not clean up database (file error).\n");
+    }
+    else if (result == 0)
+    {
+        printf("Database is empty or does not exist.\n");
+    }
+    else
+    {
+        printf("Database cleanup complete.\n");
+    }
+}
 
-    char buffer_key[KEY_VALUE_LENGTH+ 1];   // +1 for the null terminator
-    char buffer_value[KEY_VALUE_LENGTH + 1]; // +1 for the null terminator
+void init_db_command()
+{
+    // Initialize random number generator with current time
+    srand(time(NULL));
 
-    printf("Initializing database with %d alphanumeric key-value pairs (length %d)...\n", INIT_DB_SIZE, KEY_VALUE_LENGTH);
+    // Define min and max lengths for keys and values
+    const int MIN_LENGTH = 4;   // Minimum length for readability
+    const int MAX_LENGTH = 64;  // Maximum length to keep things reasonable
 
-    for (int i = 0; i < INIT_DB_SIZE; i++) {
+    printf("Initializing database with %d random key-value pairs...\n", INIT_DB_SIZE);
 
-        generate_random_alphanumeric(buffer_key, KEY_VALUE_LENGTH);
-        generate_random_alphanumeric(buffer_value, KEY_VALUE_LENGTH);
+    // Open file in write mode to start fresh
+    FILE *file = fopen(FILENAME, "wb");
+    if (!file) {
+        printf("Error: Could not open database file for writing.\n");
+        return;
+    }
 
-        if (append_key_to_disk(buffer_key, buffer_value, 0) <= 0) {
-            fprintf(stderr, "Error: Failed to set new key-value pair for item %d.\n", i + 1);
+
+    for (int i = 0; i < INIT_DB_SIZE; i++)
+    {
+        // Generate random lengths for this pair
+        int key_length = MIN_LENGTH + (rand() % (MAX_LENGTH - MIN_LENGTH + 1));
+        int value_length = MIN_LENGTH + (rand() % (MAX_LENGTH - MIN_LENGTH + 1));
+
+        // Allocate buffers with the random lengths
+        char *buffer_key = malloc(key_length + 1);   // +1 for null terminator
+        char *buffer_value = malloc(value_length + 1); // +1 for null terminator
+
+        if (!buffer_key || !buffer_value) {
+            printf("Error: Failed to allocate memory for key-value pair.\n");
+            free(buffer_key);
+            free(buffer_value);
+            fclose(file);
             return;
         }
-        printf("Inserted item %d / %d \n", i + 1, INIT_DB_SIZE);
+
+        // Generate random strings of the chosen lengths
+        generate_random_alphanumeric(buffer_key, key_length);
+        generate_random_alphanumeric(buffer_value, value_length);
+
+        // Write directly to file
+        if (!write_item_to_file(file, buffer_key, buffer_value)) {
+            printf("Error: Failed to write key-value pair to file.\n");
+            free(buffer_key);
+            free(buffer_value);
+            fclose(file);
+            return;
+        }
+
+        printf("Inserted item %d / %d (key length: %d, value length: %d)\n", 
+               i + 1, INIT_DB_SIZE, key_length, value_length);
+
+        // Free the temporary buffers
+        free(buffer_key);
+        free(buffer_value);
     }
+
+    fclose(file);
     printf("Database initialization complete.\n");
+}
+
+void cache_status(void)
+{
+    if (!memory_cache) {
+        printf("Cache is not initialized\n");
+        return;
+    }
+    
+    printf("Cache status: %d/%d items used\n", cache_size, CACHE_SIZE);
+    for (int i = 0; i < cache_size; i++) {
+        if (memory_cache[i].key) {
+            printf("  [%d] Key: %s, Value: %s, Hits: %u, Last accessed: %u\n",
+                   i, memory_cache[i].key, memory_cache[i].value,
+                   memory_cache[i].hit_count, memory_cache[i].last_accessed);
+        }
+    }
 }
