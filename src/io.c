@@ -1,15 +1,16 @@
 #include "io.h"
 #include "config.h"
 #include "ds.h"
-#include "cache.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 // Define our record separator and escape sequences
-#define RECORD_SEP '\x1E'  // Record Separator character
-#define ESCAPE_CHAR '\x1D' // Group Separator character for escaping
-#define KEY_VALUE_SEP '\x1C' // File Separator character to separate key from value
+#define RECORD_SEP '\x1E'  // Record Separator (RS) - separates records
+#define ESCAPE_CHAR '\x1B' // Escape (ESC) - for escaping special characters
+#define KEY_VALUE_SEP '\x1D' // Group Separator (GS) - separates key from value
 
 // Helper function to write a string with escaping
 static int write_escaped_string(FILE *file, const char *str) {
@@ -202,7 +203,7 @@ int print_all_data_from_disk(void)
     if (file == NULL)
     {
         printf("(empty)\n");
-        return 1; // File not found is okay
+        return 0; // File not found is considered empty
     }
 
     int key_count = 0;
@@ -241,7 +242,7 @@ int print_all_data_from_disk(void)
     printf("Total keys: %d\n", key_count);
     if (key_count == 0)
     {
-        printf("(empty)\n");
+        return 0; // Empty file
     }
 
     return 1;
@@ -520,4 +521,42 @@ int append_key_to_disk(const char *key, const char *value)
     int success = write_item_to_file(file, key, value);
     fclose(file);
     return success;
+}
+
+// Helper function to check if database exists and create it if needed
+int ensure_database_exists(void) {
+    FILE *file = fopen(FILENAME, "rb");
+    if (file) {
+        fclose(file);
+        return 1;  // Database exists
+    }
+
+    // Database doesn't exist, ask user
+    printf("Database does not exist. Create empty database? (YES/NO): ");
+    char response[10];
+    if (!fgets(response, sizeof(response), stdin)) {
+        return 0;  // Error reading input
+    }
+
+    // Remove newline if present
+    response[strcspn(response, "\n")] = 0;
+    
+    // Convert to uppercase for comparison
+    for (char *p = response; *p; p++) {
+        *p = toupper(*p);
+    }
+
+    if (strcmp(response, "YES") == 0) {
+        file = fopen(FILENAME, "wb");
+        if (file) {
+            fclose(file);
+            printf("Empty database created.\n");
+            return 1;
+        }
+        printf("Error: Could not create database file.\n");
+        return 0;
+    }
+
+    printf("Database creation cancelled.\n");
+    return 0;
 }

@@ -106,7 +106,7 @@ void remove_from_memory_cache(const char *key)
     }
 }
 
-void free_global_cache(void)
+int free_global_cache(void)
 {
     if (memory_cache) {
         // Free all items in the cache
@@ -116,6 +116,8 @@ void free_global_cache(void)
         free(memory_cache);
         memory_cache = NULL;
         cache_size = 0;
+        return 1;
     }
+    return 0;
 }
 

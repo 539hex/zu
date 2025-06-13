@@ -1,63 +1,44 @@
-# Compiler and compiler flags
+# Compiler settings
 CC = gcc
+CFLAGS = -Wall -g -O2 -Isrc -std=c11
+LDFLAGS = -lreadline
 
-GLOBAL_CFLAGS = -Wall -g -O2 -Isrc
-
-# Check the operating system and set CFLAGS accordingly
-# If on Linux, use -std=gnu11, otherwise use -std=c11
-# This allows for GNU extensions on Linux, while using strict C11 on other systems.
-ifeq ($(shell uname -s), Linux)
-  CFLAGS = $(GLOBAL_CFLAGS) -std=gnu11 
-else
-  CFLAGS = $(GLOBAL_CFLAGS) -std=c11 
-endif
-
-# Add -lreadline for readline library
-LDFLAGS = -lreadline 
-# Add -lrt on Linux if clock_gettime requires it
-
-# Define the source directory
+# Source directories
 SRC_DIR = src
+TEST_DIR = tests
 
-# Automatically find all .c files in the SRC_DIR.
-# This will produce a list like: src/zu.c src/zu_ds.c ...
-C_SOURCES_WITH_PATH = $(wildcard $(SRC_DIR)/*.c)
+# Source files for main program
+MAIN_SRC = $(wildcard $(SRC_DIR)/*.c)
+TEST_SRC = $(TEST_DIR)/test.c
 
-# Get the basenames of the C source files (e.g., zu.c, zu_ds.c from src/zu.c, src/zu_ds.c)
-C_SOURCES_BASENAMES = $(notdir $(C_SOURCES_WITH_PATH))
+# Object files
+MAIN_OBJ = $(MAIN_SRC:.c=.o)
+TEST_OBJ = $(TEST_SRC:.c=.o)
 
-# Object files will be created in the current directory (root, where Makefile is).
-# Their names are derived from C_SOURCES_BASENAMES (e.g., zu.o from zu.c).
-OBJS = $(C_SOURCES_BASENAMES:.c=.o)
-# Alternative using patsubst if you prefer:
-# OBJS = $(patsubst %.c,%.o,$(C_SOURCES_BASENAMES))
+# Common object files (used by both main and test)
+COMMON_OBJ = $(filter-out $(SRC_DIR)/zu.o, $(MAIN_OBJ))
 
-# The name of your executable
+# Executables
 EXEC = zu
+TEST_EXEC = test_suite
 
-# VPATH specifies a list of directories make should search for prerequisites
-# that are not found in the current directory.
-VPATH = $(SRC_DIR)
+# Main program target
+$(EXEC): $(MAIN_OBJ)
+	$(CC) $(CFLAGS) $(MAIN_OBJ) -o $(EXEC) $(LDFLAGS)
 
-# Default target
-all: $(EXEC)
+# Test suite target
+test: $(TEST_EXEC)
 
-# Rule to link the executable
-$(EXEC): $(OBJS) src/config.h
-	$(CC) $(CFLAGS) $(OBJS) -o $(EXEC) $(LDFLAGS)
+$(TEST_EXEC): $(COMMON_OBJ) $(TEST_OBJ)
+	$(CC) $(CFLAGS) $^ -o $(TEST_EXEC) $(LDFLAGS)
 
-# Generic pattern rule to compile .c files into .o files.
-# When make needs to build an object file (e.g., zu.o),
-# it will look for its corresponding .c file (zu.c).
-# Due to VPATH, it will find it in $(SRC_DIR)/zu.c.
-# The automatic variable '$<' will expand to the path of the prerequisite (e.g., src/zu.c).
-# The automatic variable '$@' will expand to the target name (e.g., zu.o).
+# Object file rules
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Target to clean up build files
+# Clean target
 clean:
-	rm -f $(OBJS) $(EXEC)
+	rm -f $(EXEC) $(TEST_EXEC) $(SRC_DIR)/*.o $(TEST_DIR)/*.o
 
-# Phony targets are targets that don't represent actual files
-.PHONY: all clean
+# Phony targets
+.PHONY: clean test
