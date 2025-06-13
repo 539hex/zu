@@ -3,7 +3,10 @@
 
 #include <time.h> // For struct timespec
 
-void zu_timer_start(struct timespec *start_time);
-double zu_timer_end(const struct timespec *start_time);
+void cache_timer_start(struct timespec *start_time);
+int cache_timer_end(const struct timespec *start_time);
+
+void command_timer_start(struct timespec *start_time);
+double command_timer_end(const struct timespec *start_time);
 
 #endif // ZU_TIMER_H

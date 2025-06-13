@@ -16,6 +16,7 @@ int update_key_on_disk(const char *key, const char *new_value);
 int remove_key_from_disk(const char *key);
 int append_key_to_disk(const char *key, const char *value);
 int cleanup_duplicate_keys(void); // New function to clean up duplicate keys
+int ensure_database_exists(void); // New function to check/create database
 
 // Helper function declarations
 int write_item_to_file(FILE *file, const char *key, const char *value);

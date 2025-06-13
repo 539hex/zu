@@ -7,29 +7,38 @@
 #include <readline/history.h>
 
 #include "version.h"
-#include "config.h"
 #include "timer.h"
-#include "cache.h"
 #include "commands.h"
-#include "io.h"
+#include "config.h"
+#include "cache.h"
 
 int main(void)
 {
     char *line;
     char *command_token, *key_token, *value_token;
     double exec_time;
-    struct timespec timer_val; // For the timer
+    struct timespec command_timer_val; // For the command timer
+    struct timespec cache_timer_val;   // For the cache timer
 
     printf("Zu %s\n", ZU_VERSION);
-    // HIT_THRESHOLD_FOR_CACHING is extern from zu_config.h, defined in zu_cache.c
     printf("Type 'help' for available commands. \n");
-    // Allocate memory for cache
     // Initialize readline history
     using_history();
+    cache_timer_start(&cache_timer_val);
 
     while (1)
     {
         line = readline("> ");
+        if (cache_timer_end(&cache_timer_val) > CACHE_TTL)
+        {
+            printf("Cache expired. Clearing cache.\n");
+            if (free_global_cache() == 1)
+            {
+                cache_timer_val.tv_nsec = 0;
+                cache_timer_val.tv_sec = 0;
+                cache_timer_start(&cache_timer_val);
+            }
+        }
         if (line == NULL)
         {
             if (feof(stdin))
@@ -56,7 +65,8 @@ int main(void)
             continue;
         }
 
-        zu_timer_start(&timer_val); // Start timer
+        command_timer_start(&command_timer_val); // Start command timer
+                                                 // Start cache timer
 
         if (strcmp(command_token, "zset") == 0)
         {
@@ -70,7 +80,11 @@ int main(void)
                 }
                 if (*value_token)
                 {
-                    zset_command(key_token, value_token);
+                    int result = zset_command(key_token, value_token);
+                    if (result < 0)
+                    {
+                        printf("Error: Operation failed.\n");
+                    }
                 }
                 else
                 {
@@ -87,7 +101,11 @@ int main(void)
             key_token = strtok(NULL, " \t");
             if (key_token && strtok(NULL, " \t") == NULL)
             { // No extra arguments
-                zget_command(key_token);
+                char *result = zget_command(key_token);
+                if (result == NULL)
+                {
+                    printf("Error: Operation failed.\n");
+                }
             }
             else
             {
@@ -99,7 +117,11 @@ int main(void)
             key_token = strtok(NULL, " \t");
             if (key_token && strtok(NULL, " \t") == NULL)
             { // No extra arguments
-                zrm_command(key_token);
+                int result = zrm_command(key_token);
+                if (result < 0)
+                {
+                    printf("Error: Operation failed.\n");
+                }
             }
             else
             {
@@ -110,7 +132,11 @@ int main(void)
         {
             if (strtok(NULL, " \t") == NULL)
             { // No extra arguments
-                zall_command();
+                int result = zall_command();
+                if (result < 0)
+                {
+                    printf("Error: Operation failed.\n");
+                }
             }
             else
             {
@@ -121,7 +147,11 @@ int main(void)
         {
             if (strtok(NULL, " \t") == NULL)
             { // No extra arguments
-                init_db_command();
+                int result = init_db_command();
+                if (result < 0)
+                {
+                    printf("Error: Operation failed.\n");
+                }
             }
             else
             {
@@ -132,45 +162,47 @@ int main(void)
         {
             if (strtok(NULL, " \t") == NULL)
             { // No extra arguments
-                cache_status();
+                int result = cache_status();
+                if (result < 0)
+                {
+                    printf("Error: Operation failed.\n");
+                }
             }
             else
             {
                 printf("Usage: cache_status");
             }
         }
-        else if (strcmp(command_token, "cleanup_db") == 0)
+        else if (strcmp(command_token, "clear") == 0)
         {
-            if (strtok(NULL, " \t") == NULL)
-            { // No extra arguments
-                cleanup_db_command();
-            }
-            else
-            {
-                printf("Usage: cleanup_db");
-            }
+            clear();                                           // Clear the terminal screen
+            exec_time = command_timer_end(&command_timer_val); // Stop timer for 'clear'
+            free(line);
+            continue; // Don't print time twice for 'clear'
         }
         else if (strcmp(command_token, "exit") == 0 || strcmp(command_token, "quit") == 0)
         {
-            exec_time = zu_timer_end(&timer_val); // Stop timer for 'exit'
+            exec_time = command_timer_end(&command_timer_val); // Stop timer for 'exit'
             printf("Goodbye!\n");
             free(line);
             break;
         }
         else if (strcmp(command_token, "help") == 0)
         {
+            printf("\n");
             printf("Available commands:\n");
+            printf("\n");
             printf("  zset <key> <value> - Set a key-value pair\n");
             printf("  zget <key>         - Get value for a key\n");
             printf("  zrm <key>          - Remove a key\n");
             printf("  zall               - List all key-value pairs\n");
             printf("  init_db            - Init DB with random key-value pairs\n");
-            printf("  cleanup_db         - Remove duplicate keys from database\n");
             printf("  cache_status       - Show cache status\n");
+            printf("\n");
+            printf("  clear              - Clear the terminal screen\n");
             printf("  exit/quit          - Exit the program\n");
             printf("  help               - Show this help\n");
-            exec_time = zu_timer_end(&timer_val);
-            printf(" (%.3f ms)\n", exec_time); // Print time for help as well
+            exec_time = command_timer_end(&command_timer_val);
             free(line);
             continue; // Don't print time twice for 'help'
         }
@@ -179,8 +211,8 @@ int main(void)
             printf("Unknown command: '%s'. Type 'help' for available commands", command_token);
         }
 
-        exec_time = zu_timer_end(&timer_val); // Stop timer after execution
-        printf("\n(%.3fms)\n", exec_time);    // Print execution time
+        exec_time = command_timer_end(&command_timer_val); // Stop timer after execution
+        printf("\n(%.3fms)\n", exec_time);                 // Print execution time
 
         free(line); // Free the line allocated by readline
     }

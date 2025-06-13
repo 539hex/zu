@@ -1,13 +1,12 @@
 #ifndef COMMANDS_H
 #define COMMANDS_H
 
-// --- Command Function Declarations ---
-void zset_command(const char *key_to_set, const char *value_to_set);
-void zget_command(const char *key_to_get);
-void zrm_command(const char *key_to_remove);
-void zall_command(void);
-void init_db_command(void);
-void cleanup_db_command(void);
-void cache_status(void);
+int zset_command(const char *key, const char *value);
+char *zget_command(const char *key);
+int zrm_command(const char *key);
+int zall_command(void);
+int init_db_command(void);
+int cache_status(void);
+void clear(void);
 
 #endif // COMMANDS_H

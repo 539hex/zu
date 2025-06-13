@@ -1,11 +1,11 @@
 #include "timer.h"
 
-void zu_timer_start(struct timespec *start_time)
+void command_timer_start(struct timespec *start_time)
 {
     clock_gettime(CLOCK_MONOTONIC, start_time);
 }
 
-double zu_timer_end(const struct timespec *start_time)
+double command_timer_end(const struct timespec *start_time)
 {
     struct timespec end_time;
     clock_gettime(CLOCK_MONOTONIC, &end_time);
@@ -18,4 +18,17 @@ double zu_timer_end(const struct timespec *start_time)
         nanoseconds += 1000000000;
     }
     return (double)seconds * 1000.0 + (double)nanoseconds / 1000000.0;
+}
+
+void cache_timer_start(struct timespec *start_time)
+{
+    clock_gettime(CLOCK_MONOTONIC, start_time);
+}
+
+int cache_timer_end(const struct timespec *start_time)
+{
+    struct timespec end_time;
+    clock_gettime(CLOCK_MONOTONIC, &end_time);
+    int seconds = end_time.tv_sec - start_time->tv_sec;
+    return seconds;
 }

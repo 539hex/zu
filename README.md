@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-blue.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
-[![Version](https://img.shields.io/badge/version-0.1.0--alpha-orange.svg)]()
+[![Version](https://img.shields.io/badge/version-0.2.0--alpha-orange.svg)]()
 
 > 🚧
 > **Alpha Release - Active Development**
@@ -15,7 +15,7 @@ Zu is a lightweight, fast command-line key-value store implemented in C that com
 
 ## Key Features
 
-- **Persistent Storage**: Data is automatically saved to and loaded from a binary file (`z.u`)
+- **Persistent Storage**: Data is automatically saved to and loaded from a binary file (`dump.zdb`)
 - **Memory Cache**: Items are cached on first access with LRU eviction when cache is full
 - **Command-Line Interface**: Simple, intuitive commands for all operations
 - **Performance Monitoring**: Built-in execution time measurement for each operation
@@ -29,8 +29,9 @@ Zu is a lightweight, fast command-line key-value store implemented in C that com
 | `zget <key>`         | Retrieve the value for a given key (caches on first access) |
 | `zrm <key>`          | Remove a key-value pair (from both cache and disk)          |
 | `zall`               | List all stored key-value pairs                             |
-| `cache_status`       | Show current cache contents and usage statistics            |
 | `init_db`            | Initialize the database with random key-value pairs         |
+| `cache_status`       | Show current cache contents and usage statistics            |
+| `clean`              | Clear the terminal screen                                   |
 | `help`               | Display available commands                                  |
 | `exit` / `quit`      | Exit the program                                            |
 
@@ -99,10 +100,13 @@ zu/
 ├── Makefile          # Build configuration
 ├── README.md         # Project documentation
 ├── LICENSE           # License file
+├── test.sh           # Test script
 ├── src/              # Source code directory
 │   ├── zu.c          # Main program entry point
 │   ├── *.c           # C files
 │   └── *.h           # Header files
+├── tests/            # Test suite directory
+│   ├── test.c        # Test definition file
 └── zu                # Compiled executable (after build)
 ```
 
@@ -113,6 +117,8 @@ The system can be configured by modifying the following parameters in `src/confi
 ### Cache Settings
 
 - **CACHE_SIZE**: Maximum number of items that can be stored in the memory cache (default: 1000)
+- **CACHE_TTL**: Time-to-live (TTL) for cached items in seconds (default: 60)
+
 - **Caching Behavior**:
   - Items are cached on their first access (get operation)
   - Uses LRU (Least Recently Used) eviction when cache is full
@@ -121,21 +127,32 @@ The system can be configured by modifying the following parameters in `src/confi
 
 ### Database Settings
 
-- **FILENAME**: Name of the database file (default: "z.u")
+- **FILENAME**: Name of the database file (default: "dump.zdb")
 - **INIT_DB_SIZE**: Number of random key-value pairs to create when initializing the database (default: 5)
 - **MIN_LENGTH**: Minimum length for generated keys and values (default: 4)
 - **MAX_LENGTH**: Maximum length for generated keys and values (default: 64)
 
 These settings can be modified before compilation to adjust the behavior of the system. For example, increasing `CACHE_SIZE` will allow more items to be cached in memory, while decreasing it will make the cache more aggressive in evicting items.
 
+## Testing
+
+To run the test suite, execute the following command:
+
+```bash
+./test.sh
+```
+
+This will build the test suite and run it.
+
 ## Roadmap
 
 - [ ] Support for different data types
 - [ ] Network interface (TCP/HTTP)
 - [ ] Atomic operations and transactions
-- [ ] Comprehensive test suite
+- [X] Comprehensive test suite
 - [ ] Performance benchmarking tools
 - [ ] Data compression options
+- [ ] Hash tables for faster lookups
 
 ## Contributing
 

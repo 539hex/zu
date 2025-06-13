@@ -13,6 +13,6 @@ extern size_t cache_capacity;
 // --- Cache Management Function Declarations ---
 void add_or_update_in_memory_cache(const char *key, const char *value);
 void remove_from_memory_cache(const char *key);
-void free_global_cache(void); // To free the cache at the end
+int free_global_cache(void); // To free the cache at the end
 
 #endif // ZU_CACHE_H
