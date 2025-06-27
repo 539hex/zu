@@ -81,7 +81,7 @@ Zu also exposes a simple REST API for `set` and `get` operations. The server run
 
 ```bash
 $ ./zu
-Zu v0.1.0-alpha
+Zu v0.3.0-alpha
 Type 'help' for available commands.
 
 > zset name "John Doe"
