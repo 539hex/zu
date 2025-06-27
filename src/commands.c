@@ -9,17 +9,6 @@
 #include <stdlib.h>
 #include <time.h>
 
-#include "commands.h"
-#include "config.h"
-#include "ds.h"
-#include "cache.h"
-#include "io.h"
-#include "utils.h"
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <time.h>
-
 int zset_command(const char *key_to_set, const char *value_to_set)
 {
     if (!ensure_database_exists())

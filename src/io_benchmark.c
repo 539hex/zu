@@ -1,7 +1,6 @@
 #include "io_benchmark.h"
 #include "io.h"
 #include "utils.h"
-#include "config.h"
 #include "ds.h"
 
 #include <stdio.h>

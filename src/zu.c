@@ -128,6 +128,10 @@ int main(void)
                 {
                     printf("Error: Operation failed.\n");
                 }
+                else
+                {
+                    free(result);
+                }
             }
             else
             {
