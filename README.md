@@ -11,17 +11,17 @@
 
 ## Overview
 
-Zu is a lightweight, fast command-line key-value store implemented in C that combines persistent disk storage with in-memory caching. It automatically caches items on their first access and maintains a fixed-size cache using LRU (Least Recently Used) eviction policy. All data is persistently stored in a local binary file, while frequently accessed items are kept in memory for faster retrieval.
+Zu is a lightweight, fast command-line key-value store implemented in C that combines persistent disk storage with an in-memory hash table for caching. It automatically caches items on their first access, using the hash table to provide near-instantaneous O(1) lookups for cached data. All data is persistently stored in a local binary file, while frequently accessed items are kept in memory for faster retrieval.
 
 ## Key Features
 
 - **Persistent Storage**: Data is automatically saved to and loaded from a binary file (`dump.zdb`)
-- **Memory Cache**: Items are cached on first access with LRU eviction when cache is full
+- **Fast In-Memory Lookups**: A hash table is used for the in-memory cache, providing O(1) average time complexity for lookups.
 - **Command-Line Interface**: Simple, intuitive commands for all operations
 - **Performance Monitoring**: Built-in execution time measurement for each operation
 - **Lightweight Design**: Minimal resource footprint with efficient C implementation
 
-## Commands
+
 
 | Command              | Description                                                 |
 | -------------------- | ----------------------------------------------------------- |
@@ -31,9 +31,21 @@ Zu is a lightweight, fast command-line key-value store implemented in C that com
 | `zall`               | List all stored key-value pairs                             |
 | `init_db`            | Initialize the database with random key-value pairs         |
 | `cache_status`       | Show current cache contents and usage statistics            |
+| `benchmark`          | Run performance benchmark                                   |
 | `clean`              | Clear the terminal screen                                   |
 | `help`               | Display available commands                                  |
 | `exit` / `quit`      | Exit the program                                            |
+
+## REST API Endpoints
+
+Zu also exposes a simple REST API for `set` and `get` operations. The server runs on port `1337` by default.
+
+### Endpoints
+
+| Endpoint             | Method | Description                                   | Parameters                                   | Example                                     |
+| -------------------- | ------ | --------------------------------------------- | -------------------------------------------- | ------------------------------------------- |
+| `/set`               | `GET`  | Store or update a key-value pair              | `key=<key>`, `value=<value>`                 | `http://localhost:1337/set?key=name&value=John%20Doe` |
+| `/get`               | `GET`  | Retrieve the value for a given key            | `key=<key>`                                  | `http://localhost:1337/get?key=name`        |
 
 ## Installation
 
@@ -147,12 +159,13 @@ This will build the test suite and run it.
 ## Roadmap
 
 - [ ] Support for different data types
-- [ ] Network interface (TCP/HTTP)
+
+- [X] REST API
 - [ ] Atomic operations and transactions
 - [X] Comprehensive test suite
-- [ ] Performance benchmarking tools
+- [X] Performance benchmarking tools
 - [ ] Data compression options
-- [ ] Hash tables for faster lookups
+- [X] Hash tables for faster lookups
 
 ## Contributing
 

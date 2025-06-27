@@ -20,5 +20,6 @@ int ensure_database_exists(void); // New function to check/create database
 
 // Helper function declarations
 int write_item_to_file(FILE *file, const char *key, const char *value);
+int read_item_from_file(FILE *file, char **key, char **value);
 
 #endif // ZU_IO_H

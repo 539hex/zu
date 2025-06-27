@@ -12,8 +12,7 @@
 #define ESCAPE_CHAR '\x1B' // Escape (ESC) - for escaping special characters
 #define KEY_VALUE_SEP '\x1D' // Group Separator (GS) - separates key from value
 
-// Helper function to write a string with escaping
-static int write_escaped_string(FILE *file, const char *str) {
+int write_escaped_string(FILE *file, const char *str) {
     if (!str) return 0;
     
     for (const char *p = str; *p; p++) {
@@ -27,7 +26,7 @@ static int write_escaped_string(FILE *file, const char *str) {
 }
 
 // Helper function to read an escaped string
-static char* read_escaped_string(FILE *file) {
+char* read_escaped_string(FILE *file) {
     char *buffer = NULL;
     size_t buffer_size = 0;
     size_t buffer_pos = 0;
@@ -387,6 +386,74 @@ int remove_key_from_disk(const char *key)
     free(items);
     fclose(file);
     return 1; // Successfully removed
+}
+
+int update_key_on_disk(const char *key, const char *new_value)
+{
+    // Read all items into memory
+    DataItem *items = NULL;
+    size_t items_size = 0;
+    size_t items_capacity = 0;
+    int found = 0;
+
+    FILE *file = fopen(FILENAME, "rb");
+    if (file != NULL)
+    {
+        char *current_key = NULL;
+        char *current_value = NULL;
+
+        while (read_item_from_file(file, &current_key, &current_value) > 0)
+        {
+            if (strcmp(current_key, key) == 0)
+            {
+                // Update the value
+                free(current_value);
+                current_value = my_strdup(new_value);
+                found = 1;
+            }
+
+            if (items_size >= items_capacity)
+            {
+                items_capacity = items_capacity == 0 ? 10 : items_capacity * 2;
+                items = realloc(items, items_capacity * sizeof(DataItem));
+            }
+            items[items_size].key = current_key;
+            items[items_size].value = current_value;
+            items_size++;
+        }
+        fclose(file);
+    }
+
+    // If key was not found, add it
+    if (!found)
+    {
+        if (items_size >= items_capacity)
+        {
+            items_capacity = items_capacity == 0 ? 10 : items_capacity * 2;
+            items = realloc(items, items_capacity * sizeof(DataItem));
+        }
+        items[items_size].key = my_strdup(key);
+        items[items_size].value = my_strdup(new_value);
+        items_size++;
+    }
+
+    // Write everything back to the file
+    file = fopen(FILENAME, "wb");
+    if (file == NULL)
+    {
+        return -1;
+    }
+
+    for (size_t i = 0; i < items_size; i++)
+    {
+        write_item_to_file(file, items[i].key, items[i].value);
+        free(items[i].key);
+        free(items[i].value);
+    }
+
+    free(items);
+    fclose(file);
+    return 1;
 }
 
 // Helper function to clean up duplicate keys in the database
