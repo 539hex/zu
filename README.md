@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-blue.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
-[![Version](https://img.shields.io/badge/version-0.2.0--alpha-orange.svg)]()
+[![Version](https://img.shields.io/badge/version-0.3.0--alpha-orange.svg)]()
 
 > 🚧
 > **Alpha Release - Active Development**
