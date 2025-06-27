@@ -5,12 +5,16 @@
 #include <time.h>
 #include <readline/readline.h>
 #include <readline/history.h>
+#include <unistd.h> // For fork()
+#include <sys/wait.h> // For waitpid()
+#include <signal.h> // For kill()
 
 #include "version.h"
 #include "timer.h"
 #include "commands.h"
 #include "config.h"
 #include "cache.h"
+#include "http_server.h"
 
 int main(void)
 {
@@ -19,11 +23,31 @@ int main(void)
     double exec_time;
     struct timespec command_timer_val; // For the command timer
     struct timespec cache_timer_val;   // For the cache timer
+    pid_t server_pid;
+
+    server_pid = fork();
+
+    if (server_pid == -1) {
+        perror("fork failed");
+        return 1;
+    } else if (server_pid == 0) {
+        // Child process
+        start_inhouse_rest_server();
+        exit(0); // Exit child process after server starts
+    } else {
+        // Parent process continues to CLI
+        // Optionally, you can add a small delay or check if the child is running
+        // to ensure the server has a chance to start before the CLI is fully active.
+    }
+
+    // No longer calling waitpid with WNOHANG here.
+    // The parent will wait for the child only when exiting.
 
     printf("Zu %s\n", ZU_VERSION);
     printf("Type 'help' for available commands. \n");
     // Initialize readline history
     using_history();
+    init_cache();
     cache_timer_start(&cache_timer_val);
 
     while (1)
@@ -32,12 +56,10 @@ int main(void)
         if (cache_timer_end(&cache_timer_val) > CACHE_TTL)
         {
             printf("Cache expired. Clearing cache.\n");
-            if (free_global_cache() == 1)
-            {
-                cache_timer_val.tv_nsec = 0;
-                cache_timer_val.tv_sec = 0;
-                cache_timer_start(&cache_timer_val);
-            }
+            free_cache();
+            cache_timer_val.tv_nsec = 0;
+            cache_timer_val.tv_sec = 0;
+            cache_timer_start(&cache_timer_val);
         }
         if (line == NULL)
         {
@@ -185,8 +207,32 @@ int main(void)
             exec_time = command_timer_end(&command_timer_val); // Stop timer for 'exit'
             printf("Goodbye!\n");
             free(line);
+
+            // Terminate the child process (HTTP server)
+            if (server_pid > 0) {
+                printf("Shutting down REST server...\n");
+                kill(server_pid, SIGTERM); // Send SIGTERM to the child process
+                waitpid(server_pid, NULL, 0); // Wait for the child process to terminate
+                printf("REST server shut down.\n");
+            }
             break;
         }
+        else if (strcmp(command_token, "benchmark") == 0)
+        {
+            if (strtok(NULL, " \t") == NULL)
+            {
+                int result = benchmark_command();
+                if (result < 0)
+                {
+                    printf("Error: Operation failed.\n");
+                }
+            }
+            else
+            {
+                printf("Usage: benchmark");
+            }
+        }
+
         else if (strcmp(command_token, "help") == 0)
         {
             printf("\n");
@@ -194,6 +240,7 @@ int main(void)
             printf("\n");
             printf("  zset <key> <value> - Set a key-value pair\n");
             printf("  zget <key>         - Get value for a key\n");
+            printf("  benchmark          - Run performance benchmark\n");
             printf("  zrm <key>          - Remove a key\n");
             printf("  zall               - List all key-value pairs\n");
             printf("  init_db            - Init DB with random key-value pairs\n");
@@ -217,6 +264,7 @@ int main(void)
         free(line); // Free the line allocated by readline
     }
 
+    free_cache();
     // Clean up readline history
     clear_history(); // Free global cache before terminating
     return 0;

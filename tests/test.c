@@ -66,15 +66,8 @@ static void test_cache_operations(void) {
     assert(strcmp(zget_command("cache_key"), "cache_value") == 0);
     
     // Verify it's in cache
-    int found = 0;
-    for (int i = 0; i < cache_size; i++) {
-        if (memory_cache[i].key && strcmp(memory_cache[i].key, "cache_key") == 0) {
-            test_cond(strcmp(memory_cache[i].value, "cache_value") == 0);
-            found = 1;
-            break;
-        }
-    }
-    if (!found) { test_cond(0); }
+    DataItem *item = get_from_cache("cache_key");
+    test_cond(item != NULL && strcmp(item->value, "cache_value") == 0);
 }
 
 // Test removal operation
@@ -140,7 +133,7 @@ static void test_cache_status(void) {
     assert(result == 1);
     
     // Test with uninitialized cache
-    assert(free_global_cache() == 1);
+    free_cache();
     assert(cache_status() == -1);
     test_cond(result);
 }
@@ -162,6 +155,8 @@ static void test_db_init(void) {
 int main(void) {
     printf("\n=== Zu Test Suite ===\n\n");
     set_test_mode();
+    init_cache();
+
     
     // Run all tests
     test_basic_operations();

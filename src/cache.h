@@ -1,18 +1,17 @@
 #ifndef CACHE_H
 #define CACHE_H
 
-#include "ds.h"     // For DataItem
+#include "ds.h"     // For DataItem, HashTable
 #include <stddef.h> // For size_t
 
 // Extern declarations for global cache variables
-// Definitions will be in zu_cache.c
-extern DataItem *memory_cache;
-extern int cache_size;
-extern size_t cache_capacity;
+extern HashTable *memory_cache;
 
 // --- Cache Management Function Declarations ---
-void add_or_update_in_memory_cache(const char *key, const char *value);
-void remove_from_memory_cache(const char *key);
-int free_global_cache(void); // To free the cache at the end
+void init_cache(void);
+void free_cache(void);
+void add_to_cache(const char *key, const char *value);
+DataItem *get_from_cache(const char *key);
+void remove_from_cache(const char *key);
 
-#endif // ZU_CACHE_H
+#endif // CACHE_H

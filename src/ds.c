@@ -4,6 +4,136 @@
 #include <string.h>
 #include <stdlib.h>
 
+// --- Hash Table Implementation ---
+
+// A simple hash function (djb2)
+unsigned int hash_function(const char *key, unsigned int size)
+{
+    unsigned long hash = 5381;
+    int c;
+    while ((c = *key++))
+    {
+        hash = ((hash << 5) + hash) + c; // hash * 33 + c
+    }
+    return hash % size;
+}
+
+HashTable *create_hash_table(unsigned int size)
+{
+    HashTable *ht = malloc(sizeof(HashTable));
+    if (!ht)
+        return NULL;
+    ht->size = size;
+    ht->table = calloc(size, sizeof(DataItem *));
+    if (!ht->table)
+    {
+        free(ht);
+        return NULL;
+    }
+    return ht;
+}
+
+void free_hash_table(HashTable *ht)
+{
+    if (!ht)
+        return;
+    for (unsigned int i = 0; i < ht->size; i++)
+    {
+        DataItem *current = ht->table[i];
+        while (current)
+        {
+            DataItem *next = current->next;
+            free_data_item_contents(current);
+            free(current);
+            current = next;
+        }
+    }
+    free(ht->table);
+    free(ht);
+}
+
+void hash_table_insert(HashTable *ht, const char *key, const char *value)
+{
+    unsigned int index = hash_function(key, ht->size);
+    DataItem *current = ht->table[index];
+    DataItem *prev = NULL;
+
+    // Check if key already exists
+    while (current)
+    {
+        if (strcmp(current->key, key) == 0)
+        {
+            // Key found, update value
+            free(current->value);
+            current->value = my_strdup(value);
+            return;
+        }
+        prev = current;
+        current = current->next;
+    }
+
+    // Key not found, create new item
+    DataItem *new_item = malloc(sizeof(DataItem));
+    if (!new_item)
+        return; // Handle allocation failure
+    new_item->key = my_strdup(key);
+    new_item->value = my_strdup(value);
+    new_item->hit_count = 0;
+    new_item->last_accessed = 0; // Or set current time
+    new_item->next = NULL;
+
+    if (prev)
+    {
+        prev->next = new_item;
+    }
+    else
+    {
+        ht->table[index] = new_item;
+    }
+}
+
+DataItem *hash_table_search(HashTable *ht, const char *key)
+{
+    unsigned int index = hash_function(key, ht->size);
+    DataItem *current = ht->table[index];
+    while (current)
+    {
+        if (strcmp(current->key, key) == 0)
+        {
+            return current;
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+
+void hash_table_remove(HashTable *ht, const char *key)
+{
+    unsigned int index = hash_function(key, ht->size);
+    DataItem *current = ht->table[index];
+    DataItem *prev = NULL;
+
+    while (current)
+    {
+        if (strcmp(current->key, key) == 0)
+        {
+            if (prev)
+            {
+                prev->next = current->next;
+            }
+            else
+            {
+                ht->table[index] = current->next;
+            }
+            free_data_item_contents(current);
+            free(current);
+            return;
+        }
+        prev = current;
+        current = current->next;
+    }
+}
+
 char *my_strdup(const char *s)
 {
     if (s == NULL)

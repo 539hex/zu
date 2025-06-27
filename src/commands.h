@@ -9,4 +9,6 @@ int init_db_command(void);
 int cache_status(void);
 void clear(void);
 
+int benchmark_command(void);
+
 #endif // COMMANDS_H
