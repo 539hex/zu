@@ -1,3 +1,3 @@
 #include "version.h"
 
-char ZU_VERSION[] = "v0.3.1-alpha";
+char ZU_VERSION[] = "v0.4.0-alpha";

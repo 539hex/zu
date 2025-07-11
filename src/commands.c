@@ -8,11 +8,17 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <stdbool.h> // For bool, true, false
 
-int zset_command(const char *key_to_set, const char *value_to_set)
+int zset_command(const char *key_to_set, const char *value_to_set, bool is_cli)
 {
     if (!ensure_database_exists())
     {
+        return -1;
+    }
+
+    if (strlen(key_to_set) == 0 || strlen(value_to_set) == 0) {
+        printf("Error: Key or value cannot be empty.\n");
         return -1;
     }
 
@@ -23,17 +29,22 @@ int zset_command(const char *key_to_set, const char *value_to_set)
     }
 
     add_to_cache(key_to_set, value_to_set);
-    printf("OK\n");
+    if ((is_cli && DEBUG_CLI) || (!is_cli && DEBUG_HTTP)) printf("OK\n");
     return 1;
 }
 
-char *zget_command(const char *key_to_get)
+char *zget_command(const char *key_to_get, bool is_cli)
 {
+    if (strlen(key_to_get) == 0) {
+        printf("Error: Key cannot be empty.\n");
+        return NULL;
+    }
+
     DataItem *item = get_from_cache(key_to_get);
     if (item)
     {
 #ifndef BENCHMARK_MODE
-        printf("%s\n", item->value);
+        if ((is_cli && DEBUG_CLI) || (!is_cli && DEBUG_HTTP)) printf("%s\n", item->value);
 #endif
         return my_strdup(item->value);
     }
@@ -44,21 +55,21 @@ char *zget_command(const char *key_to_get)
     if (result < 0)
     {
 #ifndef BENCHMARK_MODE
-        printf("Error: Could not access data.\n");
+        if ((is_cli && DEBUG_CLI) || (!is_cli && DEBUG_HTTP)) printf("Error: Could not access data.\n");
 #endif
         return NULL;
     }
     else if (result == 0)
     {
 #ifndef BENCHMARK_MODE
-        printf("Key '%s' not found.\n", key_to_get);
+        if ((is_cli && DEBUG_CLI) || (!is_cli && DEBUG_HTTP)) printf("Key '%s' not found.\n", key_to_get);
 #endif
         return NULL;
     }
 
     add_to_cache(key_to_get, value);
 #ifndef BENCHMARK_MODE
-    printf("%s\n", value);
+    if ((is_cli && DEBUG_CLI) || (!is_cli && DEBUG_HTTP)) printf("%s\n", value);
 #endif
     return value;
 }
@@ -215,23 +226,22 @@ int benchmark_command(void)
     clock_gettime(CLOCK_MONOTONIC, &start);
     for (int i = 0; i < num_keys; i++)
     {
-        char *value = zget_command(keys[i]);
+        char *value = zget_command(keys[i], false); // Removed silent parameter
         if (value) free(value); // Free the copied value from zget_command
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     get_time = (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_nsec - start.tv_nsec) / 1000000.0;
 
+    // Free keys
+    for (int i = 0; i < num_keys; i++) {
+        free(keys[i]);
+    }
+    free(keys);
+
     printf("\nBenchmark Results:\n");
     printf("Total GET operations: %d\n", num_keys);
     printf("Total GET time: %.3fms\n", get_time);
     printf("Average GET time per key: %.3fus\n", (get_time * 1000.0) / num_keys);
-
-    // Clean up keys array
-    for (int i = 0; i < num_keys; i++)
-    {
-        free(keys[i]);
-    }
-    free(keys);
 
     // 4. Clean up temporary database
     cleanup_benchmark_db(benchmark_filename);

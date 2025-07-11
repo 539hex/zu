@@ -7,7 +7,9 @@
 #define CACHE_SIZE 1000
 #define CACHE_TTL 60
 #define REST_SERVER_PORT 1337
-#define BENCHMARK_MODE 1 // Set to 1 to suppress output during benchmark
+#define BENCHMARK_MODE 0
+#define DEBUG_CLI 1 // Set to 1 to enable CLI output, 0 to disable
+#define DEBUG_HTTP 0 // Set to 1 to enable HTTP server output, 0 to disable
 extern char *FILENAME;
 
 void set_test_mode(void);

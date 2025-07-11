@@ -40,13 +40,13 @@ static void test_basic_operations(void) {
     init_test_db();
     
     // Test setting a value
-    assert(zset_command("test_key", "test_value") == 1);
+    assert(zset_command("test_key", "test_value", true) == 1);
     
     // Test getting the value
     char* value = NULL;
     int result = find_key_on_disk("test_key", &value);
     // Test getting non-existent key
-    assert(zget_command("nonexistent_key") == NULL);
+    assert(zget_command("nonexistent_key", true) == NULL);
     test_cond(result > 0 && value != NULL && strcmp(value, "test_value") == 0);
     if (value) free(value);
     
@@ -60,10 +60,10 @@ static void test_cache_operations(void) {
     init_test_db();
     
     // Set a value
-    assert(zset_command("cache_key", "cache_value") == 1);
+    assert(zset_command("cache_key", "cache_value", true) == 1);
     
     // First get should cache the value
-    assert(strcmp(zget_command("cache_key"), "cache_value") == 0);
+    assert(strcmp(zget_command("cache_key", true), "cache_value") == 0);
     
     // Verify it's in cache
     DataItem *item = get_from_cache("cache_key");
@@ -77,7 +77,7 @@ static void test_remove_operation(void) {
     init_test_db();
     
     // Set a value
-    assert(zset_command("remove_key", "remove_value") == 1);
+    assert(zset_command("remove_key", "remove_value", true) == 1);
     
     // Remove the value
     assert(zrm_command("remove_key") == 1);
@@ -98,9 +98,9 @@ static void test_list_all(void) {
     init_test_db();
     
     // Set multiple values
-    assert(zset_command("key1", "value1") == 1);
-    assert(zset_command("key2", "value2") == 1);
-    assert(zset_command("key3", "value3") == 1);
+    assert(zset_command("key1", "value1", true) == 1);
+    assert(zset_command("key2", "value2", true) == 1);
+    assert(zset_command("key3", "value3", true) == 1);
     
     // Get all keys
     int result = zall_command();
@@ -122,9 +122,9 @@ static void test_cache_status(void) {
     init_test_db();
     
     // Set and get a value to ensure it's cached
-    int result = zset_command("status_key", "status_value");
+    int result = zset_command("status_key", "status_value", true);
     assert(result == 1);
-    char* value = zget_command("status_key");
+    char* value = zget_command("status_key", true);
     assert(strcmp(value, "status_value") == 0);
     free(value);
     

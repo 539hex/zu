@@ -3,6 +3,7 @@
 
 #include "ds.h"     // For DataItem, HashTable
 #include <stddef.h> // For size_t
+#include <pthread.h>
 
 // Extern declarations for global cache variables
 extern HashTable *memory_cache;

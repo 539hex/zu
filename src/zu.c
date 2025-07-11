@@ -7,14 +7,17 @@
 #include <readline/history.h>
 #include <unistd.h> // For fork()
 #include <sys/wait.h> // For waitpid()
-#include <signal.h> // For kill()
+#include <pthread.h> // For threading
+#include <stdbool.h> // If not already included via header
 
 #include "version.h"
 #include "timer.h"
 #include "commands.h"
-#include "config.h"
 #include "cache.h"
 #include "http_server.h"
+
+// Global for thread
+pthread_t server_thread;
 
 int main(void)
 {
@@ -23,21 +26,11 @@ int main(void)
     double exec_time;
     struct timespec command_timer_val; // For the command timer
     struct timespec cache_timer_val;   // For the cache timer
-    pid_t server_pid;
 
-    server_pid = fork();
-
-    if (server_pid == -1) {
-        perror("fork failed");
-        return 1;
-    } else if (server_pid == 0) {
-        // Child process
-        start_inhouse_rest_server();
-        exit(0); // Exit child process after server starts
-    } else {
-        // Parent process continues to CLI
-        // Optionally, you can add a small delay or check if the child is running
-        // to ensure the server has a chance to start before the CLI is fully active.
+    // Remove fork, start server in thread
+    if (pthread_create(&server_thread, NULL, (void*)start_inhouse_rest_server, NULL) != 0) {
+        perror("Failed to start REST server thread");
+        // Continue or exit?
     }
 
     // No longer calling waitpid with WNOHANG here.
@@ -45,6 +38,8 @@ int main(void)
 
     printf("Zu %s\n", ZU_VERSION);
     printf("Type 'help' for available commands. \n");
+    fflush(stdout);
+
     // Initialize readline history
     using_history();
     init_cache();
@@ -53,14 +48,6 @@ int main(void)
     while (1)
     {
         line = readline("> ");
-        if (cache_timer_end(&cache_timer_val) > CACHE_TTL)
-        {
-            printf("Cache expired. Clearing cache.\n");
-            free_cache();
-            cache_timer_val.tv_nsec = 0;
-            cache_timer_val.tv_sec = 0;
-            cache_timer_start(&cache_timer_val);
-        }
         if (line == NULL)
         {
             if (feof(stdin))
@@ -102,7 +89,7 @@ int main(void)
                 }
                 if (*value_token)
                 {
-                    int result = zset_command(key_token, value_token);
+                    int result = zset_command(key_token, value_token, true);
                     if (result < 0)
                     {
                         printf("Error: Operation failed.\n");
@@ -123,7 +110,7 @@ int main(void)
             key_token = strtok(NULL, " \t");
             if (key_token && strtok(NULL, " \t") == NULL)
             { // No extra arguments
-                char *result = zget_command(key_token);
+                char *result = zget_command(key_token, true);
                 if (result == NULL)
                 {
                     printf("Error: Operation failed.\n");
@@ -212,13 +199,12 @@ int main(void)
             printf("Goodbye!\n");
             free(line);
 
-            // Terminate the child process (HTTP server)
-            if (server_pid > 0) {
-                printf("Shutting down REST server...\n");
-                kill(server_pid, SIGTERM); // Send SIGTERM to the child process
-                waitpid(server_pid, NULL, 0); // Wait for the child process to terminate
-                printf("REST server shut down.\n");
-            }
+            // Join the server thread
+            printf("Shutting down REST server...\n");
+            // Assuming we add a way to stop the server loop, for now just cancel
+            pthread_cancel(server_thread);
+            pthread_join(server_thread, NULL);
+            printf("REST server shut down.\n");
             break;
         }
         else if (strcmp(command_token, "benchmark") == 0)

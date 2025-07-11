@@ -7,10 +7,38 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <ctype.h> // For isxdigit
 
 #include "config.h"
 #define PORT REST_SERVER_PORT
 #define BUFFER_SIZE 1024
+
+// Add global
+volatile int server_running = 1;
+
+// Add function
+static int hex_to_int(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return 0;
+}
+
+static char* url_decode(const char* str) {
+    char* decoded = malloc(strlen(str) + 1);
+    char* ptr = decoded;
+    while (*str) {
+        if (*str == '%' && isxdigit(str[1]) && isxdigit(str[2])) {
+            char byte = (hex_to_int(str[1]) << 4) | hex_to_int(str[2]);
+            *ptr++ = byte;
+            str += 3;
+        } else {
+            *ptr++ = *str++;
+        }
+    }
+    *ptr = '\0';
+    return decoded;
+}
 
 // Function to parse URL-encoded key-value pairs
 static void parse_query_params(char *query, char *key_buf, char *value_buf)
@@ -35,10 +63,16 @@ static void parse_query_params(char *query, char *key_buf, char *value_buf)
             if (strcmp(param_name, "key") == 0)
             {
                 strcpy(key_buf, param_value);
+                char* decoded = url_decode(key_buf);
+                strcpy(key_buf, decoded);
+                free(decoded);
             }
             else if (strcmp(param_name, "value") == 0)
             {
                 strcpy(value_buf, param_value);
+                char* decoded = url_decode(value_buf);
+                strcpy(value_buf, decoded);
+                free(decoded);
             }
         }
     }
@@ -61,7 +95,8 @@ void handle_client(int client_socket)
 
         if (strcmp(path, "/set") == 0)
         {
-            char key[256] = {0}, value[256] = {0};
+            char *key = malloc(1024);
+            char *value = malloc(1024);
             if (query)
             {
                 parse_query_params(query, key, value);
@@ -69,7 +104,7 @@ void handle_client(int client_socket)
 
             if (strlen(key) > 0 && strlen(value) > 0)
             {
-                int result = zset_command(key, value);
+                int result = zset_command(key, value, false);
                 if (result == 1)
                 {
                     char *response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"OK\"}";
@@ -86,10 +121,13 @@ void handle_client(int client_socket)
                 char *response = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n\r\n{\"status\":\"Missing key or value\"}";
                 send(client_socket, response, strlen(response), 0);
             }
+            free(key);
+            free(value);
         }
         else if (strcmp(path, "/get") == 0)
         {
-            char key[256] = {0}, dummy_value[256] = {0}; // dummy_value to match parse_query_params signature
+            char *key = malloc(1024);
+            char *dummy_value = malloc(1024);
             if (query)
             {
                 parse_query_params(query, key, dummy_value);
@@ -97,7 +135,7 @@ void handle_client(int client_socket)
 
             if (strlen(key) > 0)
             {
-                char *result = zget_command(key);
+                char *result = zget_command(key, false);
                 if (result != NULL)
                 {
                     char response[BUFFER_SIZE];
@@ -111,6 +149,8 @@ void handle_client(int client_socket)
                     send(client_socket, response, strlen(response), 0);
                 }
             }
+            free(key);
+            free(dummy_value);
         }
         else if (strcmp(path, "/health") == 0)
         {
@@ -165,7 +205,7 @@ void start_inhouse_rest_server(void)
 
     printf("Starting in-house REST server on port %d\n", PORT);
 
-    while (1)
+    while (server_running)
     {
         if ((client_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen)) < 0)
         {
@@ -174,4 +214,6 @@ void start_inhouse_rest_server(void)
         }
         handle_client(client_socket);
     }
+
+    close(server_fd);
 }

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h> // For UINT_MAX
 
 // --- Hash Table Implementation ---
 
@@ -89,6 +90,35 @@ void hash_table_insert(HashTable *ht, const char *key, const char *value)
     else
     {
         ht->table[index] = new_item;
+    }
+
+    // After insert, check size
+    unsigned int total_items = 0;
+    for (unsigned int i = 0; i < ht->size; i++) {
+        DataItem *item = ht->table[i];
+        while (item) {
+            total_items++;
+            item = item->next;
+        }
+    }
+    while (total_items > CACHE_SIZE) {
+        // Find LRU (lowest last_accessed)
+        DataItem *lru = NULL;
+        unsigned int lru_time = UINT_MAX;
+        for (unsigned int i = 0; i < ht->size; i++) {
+            DataItem *item = ht->table[i];
+            while (item) {
+                if (item->last_accessed < lru_time) {
+                    lru_time = item->last_accessed;
+                    lru = item;
+                }
+                item = item->next;
+            }
+        }
+        if (lru) {
+            hash_table_remove(ht, lru->key);
+            total_items--;
+        }
     }
 }
 

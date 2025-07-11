@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <sys/file.h> // For flock
 
 // Define our record separator and escape sequences
 #define RECORD_SEP '\x1E'  // Record Separator (RS) - separates records
@@ -124,6 +125,10 @@ int load_all_data_from_disk(DataItem **full_data_list, size_t *list_size, size_t
     {
         return 1; // File not found, that's okay
     }
+    if (flock(fileno(file), LOCK_SH) == -1) { // Shared lock for reading
+        fclose(file);
+        return 0;
+    }
 
     char *current_key = NULL;
     char *current_value = NULL;
@@ -138,6 +143,7 @@ int load_all_data_from_disk(DataItem **full_data_list, size_t *list_size, size_t
             // Error occurred
             free(current_key);
             free(current_value);
+            flock(fileno(file), LOCK_UN);
             fclose(file);
             return 0;
         }
@@ -149,9 +155,11 @@ int load_all_data_from_disk(DataItem **full_data_list, size_t *list_size, size_t
         if (!(*full_data_list)[*list_size].key || !(*full_data_list)[*list_size].value)
         {
             perror("Failed to allocate memory for data list entry");
-            free_data_item_contents(&(*full_data_list)[*list_size]);
+            if ((*full_data_list)[*list_size].key) free((*full_data_list)[*list_size].key);
+            if ((*full_data_list)[*list_size].value) free((*full_data_list)[*list_size].value);
             free(current_key);
             free(current_value);
+            flock(fileno(file), LOCK_UN);
             fclose(file);
             return 0;
         }
@@ -164,9 +172,11 @@ int load_all_data_from_disk(DataItem **full_data_list, size_t *list_size, size_t
     if (ferror(file))
     {
         perror("File read error during full load");
+        flock(fileno(file), LOCK_UN);
         fclose(file);
         return 0;
     }
+    flock(fileno(file), LOCK_UN);
     fclose(file);
     return 1;
 }
@@ -179,12 +189,17 @@ void save_all_data_to_disk(DataItem *data_list, size_t list_size)
         perror("Failed to open file for writing all data");
         return;
     }
+    if (flock(fileno(file), LOCK_EX) == -1) { // Exclusive lock for writing
+        fclose(file);
+        return;
+    }
 
     for (size_t i = 0; i < list_size; i++)
     {
         if (!write_item_to_file(file, data_list[i].key, data_list[i].value))
         {
             perror("Error writing data to disk file");
+            flock(fileno(file), LOCK_UN);
             fclose(file);
             return;
         }
@@ -193,6 +208,8 @@ void save_all_data_to_disk(DataItem *data_list, size_t list_size)
     if (fclose(file) != 0)
     {
         perror("Failed to close file after writing all data");
+    } else {
+        flock(fileno(file), LOCK_UN);
     }
 }
 
@@ -203,6 +220,10 @@ int print_all_data_from_disk(void)
     {
         printf("(empty)\n");
         return 0; // File not found is considered empty
+    }
+    if (flock(fileno(file), LOCK_SH) == -1) {
+        fclose(file);
+        return 0;
     }
 
     int key_count = 0;
@@ -218,6 +239,7 @@ int print_all_data_from_disk(void)
                 break;
             // Error occurred
             printf("Error: Invalid database format\n");
+            flock(fileno(file), LOCK_UN);
             fclose(file);
             return 0;
         }
@@ -233,10 +255,12 @@ int print_all_data_from_disk(void)
     if (ferror(file))
     {
         printf("Error: File read error during print\n");
+        flock(fileno(file), LOCK_UN);
         fclose(file);
         return 0;
     }
 
+    flock(fileno(file), LOCK_UN);
     fclose(file);
     printf("Total keys: %d\n", key_count);
     if (key_count == 0)
@@ -253,6 +277,10 @@ int find_key_on_disk(const char *key, char **value)
     if (!file)
     {
         return -1; // File error
+    }
+    if (flock(fileno(file), LOCK_SH) == -1) {
+        fclose(file);
+        return -1;
     }
 
     char *current_key = NULL;
@@ -274,6 +302,7 @@ int find_key_on_disk(const char *key, char **value)
         }
     }
 
+    flock(fileno(file), LOCK_UN);
     fclose(file);
     return found;
 }
@@ -291,6 +320,10 @@ int remove_key_from_disk(const char *key)
     {
         return 0; // File doesn't exist
     }
+    if (flock(fileno(file), LOCK_EX) == -1) { // Exclusive for read-modify-write
+        fclose(file);
+        return -1;
+    }
 
     char *current_key = NULL;
     char *current_value = NULL;
@@ -305,6 +338,7 @@ int remove_key_from_disk(const char *key)
             // Error occurred
             free(current_key);
             free(current_value);
+            flock(fileno(file), LOCK_UN);
             fclose(file);
             return -1;
         }
@@ -320,6 +354,7 @@ int remove_key_from_disk(const char *key)
                 {
                     free(current_key);
                     free(current_value);
+                    flock(fileno(file), LOCK_UN);
                     fclose(file);
                     return -1;
                 }
@@ -336,6 +371,7 @@ int remove_key_from_disk(const char *key)
         }
     }
 
+    flock(fileno(file), LOCK_UN);
     fclose(file);
 
     if (!found)
@@ -363,6 +399,17 @@ int remove_key_from_disk(const char *key)
         free(items);
         return -1;
     }
+    if (flock(fileno(file), LOCK_EX) == -1) {
+        // Free any allocated items
+        for (size_t i = 0; i < items_size; i++)
+        {
+            free(items[i].key);
+            free(items[i].value);
+        }
+        free(items);
+        fclose(file);
+        return -1;
+    }
 
     // Write all items back to file
     for (size_t i = 0; i < items_size; i++)
@@ -376,6 +423,7 @@ int remove_key_from_disk(const char *key)
                 free(items[j].value);
             }
             free(items);
+            flock(fileno(file), LOCK_UN);
             fclose(file);
             return -1;
         }
@@ -384,6 +432,7 @@ int remove_key_from_disk(const char *key)
     }
 
     free(items);
+    flock(fileno(file), LOCK_UN);
     fclose(file);
     return 1; // Successfully removed
 }
@@ -399,6 +448,11 @@ int update_key_on_disk(const char *key, const char *new_value)
     FILE *file = fopen(FILENAME, "rb");
     if (file != NULL)
     {
+        if (flock(fileno(file), LOCK_EX) == -1) {
+            fclose(file);
+            return -1;
+        }
+
         char *current_key = NULL;
         char *current_value = NULL;
 
@@ -421,6 +475,7 @@ int update_key_on_disk(const char *key, const char *new_value)
             items[items_size].value = current_value;
             items_size++;
         }
+        flock(fileno(file), LOCK_UN);
         fclose(file);
     }
 
@@ -443,6 +498,10 @@ int update_key_on_disk(const char *key, const char *new_value)
     {
         return -1;
     }
+    if (flock(fileno(file), LOCK_EX) == -1) {
+        fclose(file);
+        return -1;
+    }
 
     for (size_t i = 0; i < items_size; i++)
     {
@@ -452,7 +511,9 @@ int update_key_on_disk(const char *key, const char *new_value)
     }
 
     free(items);
+    flock(fileno(file), LOCK_UN);
     fclose(file);
+    cleanup_duplicate_keys();
     return 1;
 }
 
@@ -469,6 +530,10 @@ int update_key_on_disk(const char *key, const char *new_value)
     {
         return 0; // File doesn't exist
     }
+    if (flock(fileno(file), LOCK_EX) == -1) {
+        fclose(file);
+        return -1;
+    }
 
     char *current_key = NULL;
     char *current_value = NULL;
@@ -483,6 +548,7 @@ int update_key_on_disk(const char *key, const char *new_value)
             // Error occurred
             free(current_key);
             free(current_value);
+            flock(fileno(file), LOCK_UN);
             fclose(file);
             return -1;
         }
@@ -509,6 +575,7 @@ int update_key_on_disk(const char *key, const char *new_value)
                 {
                     free(current_key);
                     free(current_value);
+                    flock(fileno(file), LOCK_UN);
                     fclose(file);
                     return -1;
                 }
@@ -525,6 +592,7 @@ int update_key_on_disk(const char *key, const char *new_value)
         }
     }
 
+    flock(fileno(file), LOCK_UN);
     fclose(file);
 
     // Write back only unique items
@@ -540,6 +608,17 @@ int update_key_on_disk(const char *key, const char *new_value)
         free(items);
         return -1;
     }
+    if (flock(fileno(file), LOCK_EX) == -1) {
+        // Free any allocated items
+        for (size_t i = 0; i < items_size; i++)
+        {
+            free(items[i].key);
+            free(items[i].value);
+        }
+        free(items);
+        fclose(file);
+        return -1;
+    }
 
     // Write all unique items back to file
     for (size_t i = 0; i < items_size; i++)
@@ -553,6 +632,7 @@ int update_key_on_disk(const char *key, const char *new_value)
                 free(items[j].value);
             }
             free(items);
+            flock(fileno(file), LOCK_UN);
             fclose(file);
             return -1;
         }
@@ -561,6 +641,7 @@ int update_key_on_disk(const char *key, const char *new_value)
     }
 
     free(items);
+    flock(fileno(file), LOCK_UN);
     fclose(file);
     return 1; // Successfully cleaned up
 }
@@ -569,7 +650,7 @@ int append_key_to_disk(const char *key, const char *value)
 {
     // First check if key exists
     char *existing_value = NULL;
-    int exists = find_key_on_disk(key, &existing_value);
+    int exists = find_key_on_disk(key, &existing_value); // This already locks
     if (exists > 0)
     {
         free(existing_value);
@@ -584,8 +665,13 @@ int append_key_to_disk(const char *key, const char *value)
         if (file == NULL)
             return 0;
     }
+    if (flock(fileno(file), LOCK_EX) == -1) {
+        fclose(file);
+        return 0;
+    }
 
     int success = write_item_to_file(file, key, value);
+    flock(fileno(file), LOCK_UN);
     fclose(file);
     return success;
 }
@@ -594,6 +680,8 @@ int append_key_to_disk(const char *key, const char *value)
 int ensure_database_exists(void) {
     FILE *file = fopen(FILENAME, "rb");
     if (file) {
+        flock(fileno(file), LOCK_SH);
+        flock(fileno(file), LOCK_UN);
         fclose(file);
         return 1;  // Database exists
     }
@@ -616,6 +704,8 @@ int ensure_database_exists(void) {
     if (strcmp(response, "YES") == 0) {
         file = fopen(FILENAME, "wb");
         if (file) {
+            flock(fileno(file), LOCK_EX);
+            flock(fileno(file), LOCK_UN);
             fclose(file);
             printf("Empty database created.\n");
             return 1;
