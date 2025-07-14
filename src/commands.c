@@ -10,43 +10,37 @@
 #include <time.h>
 #include <stdbool.h> // For bool, true, false
 
-int zset_command(const char *key_to_set, const char *value_to_set, bool is_cli)
+int zset_command(const char *key_to_set, const char *value_to_set)
 {
     if (!ensure_database_exists())
     {
-        return -1;
+        return CMD_ERROR;
     }
 
     if (strlen(key_to_set) == 0 || strlen(value_to_set) == 0) {
-        printf("Error: Key or value cannot be empty.\n");
-        return -1;
+        return CMD_EMPTY;
     }
 
     if (update_key_on_disk(key_to_set, value_to_set) < 0)
     {
-        printf("Error: Failed to set key.\n");
-        return -1;
+        return CMD_ERROR;
     }
 
     add_to_cache(key_to_set, value_to_set);
-    if ((is_cli && DEBUG_CLI) || (!is_cli && DEBUG_HTTP)) printf("OK\n");
-    return 1;
+    return CMD_SUCCESS;
 }
 
-char *zget_command(const char *key_to_get, bool is_cli)
+int zget_command(const char *key_to_get, char **result_value)
 {
     if (strlen(key_to_get) == 0) {
-        printf("Error: Key cannot be empty.\n");
-        return NULL;
+        return CMD_EMPTY;
     }
 
     DataItem *item = get_from_cache(key_to_get);
     if (item)
     {
-#ifndef BENCHMARK_MODE
-        if ((is_cli && DEBUG_CLI) || (!is_cli && DEBUG_HTTP)) printf("%s\n", item->value);
-#endif
-        return my_strdup(item->value);
+        *result_value = my_strdup(item->value);
+        return CMD_SUCCESS;
     }
 
     char *value = NULL;
@@ -54,24 +48,16 @@ char *zget_command(const char *key_to_get, bool is_cli)
 
     if (result < 0)
     {
-#ifndef BENCHMARK_MODE
-        if ((is_cli && DEBUG_CLI) || (!is_cli && DEBUG_HTTP)) printf("Error: Could not access data.\n");
-#endif
-        return NULL;
+        return CMD_ERROR;
     }
     else if (result == 0)
     {
-#ifndef BENCHMARK_MODE
-        if ((is_cli && DEBUG_CLI) || (!is_cli && DEBUG_HTTP)) printf("Key '%s' not found.\n", key_to_get);
-#endif
-        return NULL;
+        return CMD_NOT_FOUND;
     }
 
     add_to_cache(key_to_get, value);
-#ifndef BENCHMARK_MODE
-    if ((is_cli && DEBUG_CLI) || (!is_cli && DEBUG_HTTP)) printf("%s\n", value);
-#endif
-    return value;
+    *result_value = value;
+    return CMD_SUCCESS;
 }
 
 int zrm_command(const char *key_to_remove)
@@ -82,18 +68,15 @@ int zrm_command(const char *key_to_remove)
 
     if (result < 0)
     {
-        printf("Error: Could not remove key (file error).\n");
-        return -1;
+        return CMD_ERROR;
     }
     else if (result == 0)
     {
-        printf("Key '%s' not found.\n", key_to_remove);
-        return 0;
+        return CMD_NOT_FOUND;
     }
     else
     {
-        printf("OK: Key '%s' removed.\n", key_to_remove);
-        return 1;
+        return CMD_SUCCESS;
     }
 }
 
@@ -102,10 +85,9 @@ int zall_command()
     int result = print_all_data_from_disk();
     if (result <= 0)
     {
-        printf("(empty or file error)\n");
-        return -1;
+        return CMD_ERROR;
     }
-    return 1;
+    return CMD_SUCCESS;
 }
 
 int init_db_command()
@@ -114,13 +96,10 @@ int init_db_command()
     const int MIN_LENGTH = 4;
     const int MAX_LENGTH = 64;
 
-    printf("Initializing database with %d random key-value pairs...\n", INIT_DB_SIZE);
-
     FILE *file = fopen(FILENAME, "wb");
     if (!file)
     {
-        printf("Error: Could not open database file for writing.\n");
-        return -1;
+        return CMD_ERROR;
     }
 
     for (int i = 0; i < INIT_DB_SIZE; i++)
@@ -133,11 +112,10 @@ int init_db_command()
 
         if (!buffer_key || !buffer_value)
         {
-            printf("Error: Failed to allocate memory for key-value pair.\n");
             free(buffer_key);
             free(buffer_value);
             fclose(file);
-            return -1;
+            return CMD_ERROR;
         }
 
         generate_random_alphanumeric(buffer_key, key_length);
@@ -145,45 +123,28 @@ int init_db_command()
 
         if (!write_item_to_file(file, buffer_key, buffer_value))
         {
-            printf("Error: Failed to write key-value pair to file.\n");
             free(buffer_key);
             free(buffer_value);
             fclose(file);
-            return -1;
+            return CMD_ERROR;
         }
-
-        printf("Inserted item %d / %d (key length: %d, value length: %d)\n",
-               i + 1, INIT_DB_SIZE, key_length, value_length);
 
         free(buffer_key);
         free(buffer_value);
     }
 
     fclose(file);
-    printf("Database initialization complete.\n");
-    return 1;
+    return CMD_SUCCESS;
 }
 
 int cache_status(void)
 {
     if (!memory_cache)
     {
-        printf("Cache is not initialized\n");
-        return -1;
+        return CMD_ERROR;
     }
 
-    printf("Cache status: %d items used\n", memory_cache->size);
-    for (unsigned int i = 0; i < memory_cache->size; i++)
-    {
-        DataItem *item = memory_cache->table[i];
-        while (item)
-        {
-            printf("  Key: %s, Value: %s, Hits: %u, Last accessed: %u\n",
-                   item->key, item->value, item->hit_count, item->last_accessed);
-            item = item->next;
-        }
-    }
-    return 1;
+    return CMD_SUCCESS;
 }
 
 #include "io_benchmark.h"
@@ -195,8 +156,6 @@ void clear(void)
 
 int benchmark_command(void)
 {
-    printf("Starting benchmark with %d key-value pairs...\n", BENCHMARK_DB_SIZE);
-
     const char *benchmark_filename = "benchmark.zdb";
     double init_time, get_time;
     struct timespec start, end;
@@ -205,47 +164,55 @@ int benchmark_command(void)
     clock_gettime(CLOCK_MONOTONIC, &start);
     if (init_benchmark_db(benchmark_filename, BENCHMARK_DB_SIZE) != 0)
     {
-        printf("Error: Failed to initialize benchmark database.\n");
-        return -1;
+        return CMD_ERROR;
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     init_time = (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_nsec - start.tv_nsec) / 1000000.0;
-    printf("Database initialization complete in %.3fms\n", init_time);
 
     // 2. Get all keys from the benchmark database
     int num_keys = 0;
     char **keys = get_all_keys_from_benchmark_db(benchmark_filename, &num_keys);
     if (!keys || num_keys == 0)
     {
-        printf("Error: No keys found in benchmark database.\n");
         cleanup_benchmark_db(benchmark_filename);
-        return -1;
+        return CMD_ERROR;
     }
 
     // 3. Perform zget operations and measure time
     clock_gettime(CLOCK_MONOTONIC, &start);
     for (int i = 0; i < num_keys; i++)
     {
-        char *value = zget_command(keys[i], false); // Removed silent parameter
-        if (value) free(value); // Free the copied value from zget_command
+        char *value;
+        int result = zget_command(keys[i], &value);
+        if (result == CMD_SUCCESS && value) {
+            free(value);
+        }
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     get_time = (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_nsec - start.tv_nsec) / 1000000.0;
-
+    
     // Free keys
     for (int i = 0; i < num_keys; i++) {
         free(keys[i]);
     }
     free(keys);
 
-    printf("\nBenchmark Results:\n");
-    printf("Total GET operations: %d\n", num_keys);
-    printf("Total GET time: %.3fms\n", get_time);
-    printf("Average GET time per key: %.3fus\n", (get_time * 1000.0) / num_keys);
-
     // 4. Clean up temporary database
     cleanup_benchmark_db(benchmark_filename);
-    printf("Benchmark database cleaned up.\n");
 
-    return 0;
+    // 5. Print benchmark recap with metrics
+    printf("\n=== BENCHMARK RECAP ===\n");
+    printf("Database Operations:\n");
+    printf("  • Database initialization: %.2f ms\n", init_time);
+    printf("  • Total keys processed: %d\n", num_keys);
+    printf("  • Get operations time: %.2f ms\n", get_time);
+    printf("\nPerformance Metrics:\n");
+    printf("  • Average time per get operation: %.4f ms\n", get_time / num_keys);
+    printf("  • Get operations per second: %.2f ops/sec\n", (num_keys * 1000.0) / get_time);
+    printf("  • Total benchmark time: %.2f ms\n", init_time + get_time);
+    printf("  • Database size: %d entries\n", BENCHMARK_DB_SIZE);
+    
+    printf("================================\n\n");
+
+    return CMD_SUCCESS;
 }
