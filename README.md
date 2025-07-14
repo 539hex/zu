@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-blue.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
-[![Version](https://img.shields.io/badge/version-0.4.0--alpha-orange.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.0--alpha-orange.svg)]()
 
 > 🚧
 > **Alpha Release - Active Development**
@@ -38,14 +38,36 @@ Zu is a lightweight, fast command-line key-value store implemented in C that com
 
 ## REST API Endpoints
 
-Zu also exposes a simple REST API for `set` and `get` operations. The server runs on port `1337` by default.
+Zu also exposes a simple REST API for health checks, `set`, and `get` operations. The server runs on port `1337` by default.
 
 ### Endpoints
 
 | Endpoint             | Method | Description                                   | Parameters                                   | Example                                     |
 | -------------------- | ------ | --------------------------------------------- | -------------------------------------------- | ------------------------------------------- |
-| `/set`               | `GET`  | Store or update a key-value pair              | `key=<key>`, `value=<value>`                 | `http://localhost:1337/set?key=name&value=John%20Doe` |
+| `/health`            | `GET`  | Health check endpoint                         | None                                         | `http://localhost:1337/health`              |
 | `/get`               | `GET`  | Retrieve the value for a given key            | `key=<key>`                                  | `http://localhost:1337/get?key=name`        |
+| `/set`               | `POST` | Store or update a key-value pair              | JSON payload: `{"key":"<key>","value":"<value>"}` | `curl -X POST http://localhost:1337/set -H "Content-Type: application/json" -d '{"key":"name","value":"John Doe"}'` |
+### API Response Examples
+
+#### Health Check
+```bash
+GET /health
+Response: {"status":"healthy"}
+```
+
+#### Set with JSON Payload (POST)
+```bash
+POST /set
+Content-Type: application/json
+Body: {"key":"username","value":"johndoe"}
+Response: {"status":"OK"}
+```
+
+#### Get
+```bash
+GET /get?key=username
+Response: {"value":"johndoe"}
+```
 
 ## Installation
 
@@ -81,8 +103,9 @@ Zu also exposes a simple REST API for `set` and `get` operations. The server run
 
 ```bash
 $ ./zu
-Zu v0.3.0-alpha
-Type 'help' for available commands.
+Zu v0.5.0-alpha
+Type 'help' for available commands. 
+Starting in-house REST server on port 1337
 
 > zset name "John Doe"
 OK
@@ -90,15 +113,17 @@ OK
 
 > zget name
 John Doe
+
 (0.08ms)
 
 > cache_status
 Cache status: 1/1000 items used
-  [0] Key: name, Value: John Doe, Hits: 1, Last accessed: 1234567890
+[0] Key: name, Value: John Doe, Hits: 1, Last accessed: 1234567890
 
 > zall
 name: John Doe
 Total keys: 1
+
 (0.15ms)
 
 > exit
@@ -145,6 +170,11 @@ The system can be configured by modifying the following parameters in `src/confi
 - **MAX_LENGTH**: Maximum length for generated keys and values (default: 64)
 
 These settings can be modified before compilation to adjust the behavior of the system. For example, increasing `CACHE_SIZE` will allow more items to be cached in memory, while decreasing it will make the cache more aggressive in evicting items.
+
+### Server Settings
+
+- **REST_SERVER_PORT**: Port for the REST server (default: 1337)
+- **HTTP_BUFFER_SIZE**: Size of the HTTP buffer (default: 1048576 - 1MB)
 
 ## Testing
 
