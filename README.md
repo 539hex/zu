@@ -1,4 +1,9 @@
-# ⚡ Zu - The Lightweight Key-Value Store
+<p align="center">
+  <a href="https://github.com/539hex/zu">
+    <img  src="./public/zu.png"
+      width="284" border="0" alt="Zu">
+  </a>
+</p>
 
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-blue.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
@@ -11,7 +16,7 @@
 
 ## Overview
 
-Zu is a lightweight, fast command-line key-value store implemented in C that combines persistent disk storage with an in-memory hash table for caching. It automatically caches items on their first access, using the hash table to provide near-instantaneous O(1) lookups for cached data. All data is persistently stored in a local binary file, while frequently accessed items are kept in memory for faster retrieval.
+Zu is a minimalist, fast key-value database implemented in C that combines persistent disk storage with an in-memory hash table for caching. It automatically caches items on their first access, using the hash table to provide near-instantaneous O(1) lookups for cached data. All data is persistently stored in a local binary file, while frequently accessed items are kept in memory for faster retrieval.
 
 ## Key Features
 
@@ -174,7 +179,7 @@ These settings can be modified before compilation to adjust the behavior of the 
 ### Server Settings
 
 - **REST_SERVER_PORT**: Port for the REST server (default: 1337)
-- **HTTP_BUFFER_SIZE**: Size of the HTTP buffer (default: 1048576 - 1MB)
+- **HTTP_BUFFER_SIZE**: Size of the HTTP buffer (default: 1048576 -)
 
 ## Testing
 
