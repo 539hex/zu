@@ -12,6 +12,10 @@
 
 int zset_command(const char *key_to_set, const char *value_to_set)
 {
+    if (!key_to_set || !value_to_set) {
+        return CMD_EMPTY;
+    }
+
     if (!ensure_database_exists())
     {
         return CMD_ERROR;
@@ -32,14 +36,19 @@ int zset_command(const char *key_to_set, const char *value_to_set)
 
 int zget_command(const char *key_to_get, char **result_value)
 {
-    if (strlen(key_to_get) == 0) {
+    if (!key_to_get || strlen(key_to_get) == 0) {
         return CMD_EMPTY;
     }
+
+    *result_value = NULL; // Initialize to NULL
 
     DataItem *item = get_from_cache(key_to_get);
     if (item)
     {
         *result_value = my_strdup(item->value);
+        if (!*result_value) {
+            return CMD_ERROR; // Memory allocation failed
+        }
         return CMD_SUCCESS;
     }
 
@@ -48,13 +57,16 @@ int zget_command(const char *key_to_get, char **result_value)
 
     if (result < 0)
     {
+        free(value); // Clean up in case of error
         return CMD_ERROR;
     }
     else if (result == 0)
     {
+        free(value); // Clean up when key not found
         return CMD_NOT_FOUND;
     }
 
+    // Only add to cache if we successfully retrieved the value
     add_to_cache(key_to_get, value);
     *result_value = value;
     return CMD_SUCCESS;
@@ -62,6 +74,10 @@ int zget_command(const char *key_to_get, char **result_value)
 
 int zrm_command(const char *key_to_remove)
 {
+    if (!key_to_remove || strlen(key_to_remove) == 0) {
+        return CMD_EMPTY;
+    }
+
     remove_from_cache(key_to_remove);
 
     int result = remove_key_from_disk(key_to_remove);
@@ -159,6 +175,8 @@ int benchmark_command(void)
     const char *benchmark_filename = "benchmark.zdb";
     double init_time, get_time;
     struct timespec start, end;
+    char **keys = NULL;
+    int num_keys = 0;
 
     // 1. Initialize temporary database
     clock_gettime(CLOCK_MONOTONIC, &start);
@@ -170,8 +188,7 @@ int benchmark_command(void)
     init_time = (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_nsec - start.tv_nsec) / 1000000.0;
 
     // 2. Get all keys from the benchmark database
-    int num_keys = 0;
-    char **keys = get_all_keys_from_benchmark_db(benchmark_filename, &num_keys);
+    keys = get_all_keys_from_benchmark_db(benchmark_filename, &num_keys);
     if (!keys || num_keys == 0)
     {
         cleanup_benchmark_db(benchmark_filename);
@@ -182,6 +199,7 @@ int benchmark_command(void)
     clock_gettime(CLOCK_MONOTONIC, &start);
     for (int i = 0; i < num_keys; i++)
     {
+        if (!keys[i]) continue; // Skip NULL keys (defensive programming)
         char *value;
         int result = zget_command(keys[i], &value);
         if (result == CMD_SUCCESS && value) {
@@ -190,7 +208,7 @@ int benchmark_command(void)
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     get_time = (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_nsec - start.tv_nsec) / 1000000.0;
-    
+
     // Free keys
     for (int i = 0; i < num_keys; i++) {
         free(keys[i]);
@@ -211,7 +229,7 @@ int benchmark_command(void)
     printf("  • Get operations per second: %.2f ops/sec\n", (num_keys * 1000.0) / get_time);
     printf("  • Total benchmark time: %.2f ms\n", init_time + get_time);
     printf("  • Database size: %d entries\n", BENCHMARK_DB_SIZE);
-    
+
     printf("================================\n\n");
 
     return CMD_SUCCESS;

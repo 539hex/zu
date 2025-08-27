@@ -1,6 +1,7 @@
 #include "io.h"
 #include "config.h"
 #include "ds.h"
+#include "cache.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -273,13 +274,17 @@ int print_all_data_from_disk(void)
 
 int find_key_on_disk(const char *key, char **value)
 {
+    pthread_mutex_lock(&file_mutex);
+
     FILE *file = fopen(FILENAME, "rb");
     if (!file)
     {
+        pthread_mutex_unlock(&file_mutex);
         return -1; // File error
     }
     if (flock(fileno(file), LOCK_SH) == -1) {
         fclose(file);
+        pthread_mutex_unlock(&file_mutex);
         return -1;
     }
 
@@ -304,11 +309,14 @@ int find_key_on_disk(const char *key, char **value)
 
     flock(fileno(file), LOCK_UN);
     fclose(file);
+    pthread_mutex_unlock(&file_mutex);
     return found;
 }
 
 int remove_key_from_disk(const char *key)
 {
+    pthread_mutex_lock(&file_mutex);
+
     // First read all items except the one to remove into memory
     DataItem *items = NULL;
     size_t items_size = 0;
@@ -318,10 +326,12 @@ int remove_key_from_disk(const char *key)
     FILE *file = fopen(FILENAME, "rb");
     if (file == NULL)
     {
+        pthread_mutex_unlock(&file_mutex);
         return 0; // File doesn't exist
     }
     if (flock(fileno(file), LOCK_EX) == -1) { // Exclusive for read-modify-write
         fclose(file);
+        pthread_mutex_unlock(&file_mutex);
         return -1;
     }
 
@@ -356,6 +366,7 @@ int remove_key_from_disk(const char *key)
                     free(current_value);
                     flock(fileno(file), LOCK_UN);
                     fclose(file);
+                    pthread_mutex_unlock(&file_mutex);
                     return -1;
                 }
             }
@@ -383,6 +394,7 @@ int remove_key_from_disk(const char *key)
             free(items[i].value);
         }
         free(items);
+        pthread_mutex_unlock(&file_mutex);
         return 0; // Key not found
     }
 
@@ -397,6 +409,7 @@ int remove_key_from_disk(const char *key)
             free(items[i].value);
         }
         free(items);
+        pthread_mutex_unlock(&file_mutex);
         return -1;
     }
     if (flock(fileno(file), LOCK_EX) == -1) {
@@ -408,6 +421,7 @@ int remove_key_from_disk(const char *key)
         }
         free(items);
         fclose(file);
+        pthread_mutex_unlock(&file_mutex);
         return -1;
     }
 
@@ -425,6 +439,7 @@ int remove_key_from_disk(const char *key)
             free(items);
             flock(fileno(file), LOCK_UN);
             fclose(file);
+            pthread_mutex_unlock(&file_mutex);
             return -1;
         }
         free(items[i].key);
@@ -434,11 +449,14 @@ int remove_key_from_disk(const char *key)
     free(items);
     flock(fileno(file), LOCK_UN);
     fclose(file);
+    pthread_mutex_unlock(&file_mutex);
     return 1; // Successfully removed
 }
 
 int update_key_on_disk(const char *key, const char *new_value)
 {
+    pthread_mutex_lock(&file_mutex);
+
     // Read all items into memory
     DataItem *items = NULL;
     size_t items_size = 0;
@@ -450,6 +468,7 @@ int update_key_on_disk(const char *key, const char *new_value)
     {
         if (flock(fileno(file), LOCK_EX) == -1) {
             fclose(file);
+            pthread_mutex_unlock(&file_mutex);
             return -1;
         }
 
@@ -496,10 +515,12 @@ int update_key_on_disk(const char *key, const char *new_value)
     file = fopen(FILENAME, "wb");
     if (file == NULL)
     {
+        pthread_mutex_unlock(&file_mutex);
         return -1;
     }
     if (flock(fileno(file), LOCK_EX) == -1) {
         fclose(file);
+        pthread_mutex_unlock(&file_mutex);
         return -1;
     }
 
@@ -513,13 +534,15 @@ int update_key_on_disk(const char *key, const char *new_value)
     free(items);
     flock(fileno(file), LOCK_UN);
     fclose(file);
-    cleanup_duplicate_keys();
+    pthread_mutex_unlock(&file_mutex);
     return 1;
 }
 
 // Helper function to clean up duplicate keys in the database
- int cleanup_duplicate_keys(void)
+int cleanup_duplicate_keys(void)
 {
+    pthread_mutex_lock(&file_mutex);
+
     // First read all unique items into memory
     DataItem *items = NULL;
     size_t items_size = 0;
@@ -528,10 +551,12 @@ int update_key_on_disk(const char *key, const char *new_value)
     FILE *file = fopen(FILENAME, "rb");
     if (file == NULL)
     {
+        pthread_mutex_unlock(&file_mutex);
         return 0; // File doesn't exist
     }
     if (flock(fileno(file), LOCK_EX) == -1) {
         fclose(file);
+        pthread_mutex_unlock(&file_mutex);
         return -1;
     }
 
@@ -577,6 +602,7 @@ int update_key_on_disk(const char *key, const char *new_value)
                     free(current_value);
                     flock(fileno(file), LOCK_UN);
                     fclose(file);
+                    pthread_mutex_unlock(&file_mutex);
                     return -1;
                 }
             }
@@ -617,6 +643,7 @@ int update_key_on_disk(const char *key, const char *new_value)
         }
         free(items);
         fclose(file);
+        pthread_mutex_unlock(&file_mutex);
         return -1;
     }
 
@@ -634,6 +661,7 @@ int update_key_on_disk(const char *key, const char *new_value)
             free(items);
             flock(fileno(file), LOCK_UN);
             fclose(file);
+            pthread_mutex_unlock(&file_mutex);
             return -1;
         }
         free(items[i].key);
@@ -643,17 +671,58 @@ int update_key_on_disk(const char *key, const char *new_value)
     free(items);
     flock(fileno(file), LOCK_UN);
     fclose(file);
+    pthread_mutex_unlock(&file_mutex);
     return 1; // Successfully cleaned up
+}
+
+// Internal function that assumes mutex is already locked
+static int find_key_on_disk_internal(const char *key, char **value)
+{
+    FILE *file = fopen(FILENAME, "rb");
+    if (!file)
+    {
+        return -1; // File error
+    }
+    if (flock(fileno(file), LOCK_SH) == -1) {
+        fclose(file);
+        return -1;
+    }
+
+    char *current_key = NULL;
+    char *current_value = NULL;
+    int found = 0;
+
+    while (!found && read_item_from_file(file, &current_key, &current_value) > 0)
+    {
+        if (strcmp(current_key, key) == 0)
+        {
+            *value = current_value; // Transfer ownership of value to caller
+            free(current_key);      // Free the key as we don't need it
+            found = 1;
+        }
+        else
+        {
+            free(current_key);
+            free(current_value);
+        }
+    }
+
+    flock(fileno(file), LOCK_UN);
+    fclose(file);
+    return found;
 }
 
 int append_key_to_disk(const char *key, const char *value)
 {
-    // First check if key exists
+    pthread_mutex_lock(&file_mutex);
+
+    // First check if key exists (without acquiring mutex again)
     char *existing_value = NULL;
-    int exists = find_key_on_disk(key, &existing_value); // This already locks
+    int exists = find_key_on_disk_internal(key, &existing_value);
     if (exists > 0)
     {
         free(existing_value);
+        pthread_mutex_unlock(&file_mutex);
         return 0; // Key already exists
     }
 
@@ -662,27 +731,34 @@ int append_key_to_disk(const char *key, const char *value)
     {
         // If file doesn't exist, try to create it
         file = fopen(FILENAME, "wb");
-        if (file == NULL)
+        if (file == NULL) {
+            pthread_mutex_unlock(&file_mutex);
             return 0;
+        }
     }
     if (flock(fileno(file), LOCK_EX) == -1) {
         fclose(file);
+        pthread_mutex_unlock(&file_mutex);
         return 0;
     }
 
     int success = write_item_to_file(file, key, value);
     flock(fileno(file), LOCK_UN);
     fclose(file);
+    pthread_mutex_unlock(&file_mutex);
     return success;
 }
 
 // Helper function to check if database exists and create it if needed
 int ensure_database_exists(void) {
+    pthread_mutex_lock(&file_mutex);
+
     FILE *file = fopen(FILENAME, "rb");
     if (file) {
         flock(fileno(file), LOCK_SH);
         flock(fileno(file), LOCK_UN);
         fclose(file);
+        pthread_mutex_unlock(&file_mutex);
         return 1;  // Database exists
     }
 
@@ -690,6 +766,7 @@ int ensure_database_exists(void) {
     printf("Database does not exist. Create empty database? (YES/NO): ");
     char response[10];
     if (!fgets(response, sizeof(response), stdin)) {
+        pthread_mutex_unlock(&file_mutex);
         return 0;  // Error reading input
     }
 
@@ -708,12 +785,15 @@ int ensure_database_exists(void) {
             flock(fileno(file), LOCK_UN);
             fclose(file);
             printf("Empty database created.\n");
+            pthread_mutex_unlock(&file_mutex);
             return 1;
         }
         printf("Error: Could not create database file.\n");
+        pthread_mutex_unlock(&file_mutex);
         return 0;
     }
 
     printf("Database creation cancelled.\n");
+    pthread_mutex_unlock(&file_mutex);
     return 0;
 }

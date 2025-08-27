@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <ctype.h> // For isxdigit
 #include <sys/time.h> // For usleep
+#include <fcntl.h> // For fcntl
+#include <errno.h> // For errno
 
 #include "config.h"
 #define PORT REST_SERVER_PORT
@@ -27,10 +29,17 @@ static int hex_to_int(char c) {
 }
 
 static char* url_decode(const char* str) {
-    char* decoded = malloc(strlen(str) + 1);
+    if (!str) return NULL;
+
+    size_t len = strlen(str);
+    char* decoded = malloc(len + 1);
+    if (!decoded) return NULL;
+
     char* ptr = decoded;
-    while (*str) {
-        if (*str == '%' && isxdigit(str[1]) && isxdigit(str[2])) {
+    const char* end = str + len;
+
+    while (str < end) {
+        if (*str == '%' && (str + 2) < end && isxdigit(str[1]) && isxdigit(str[2])) {
             char byte = (hex_to_int(str[1]) << 4) | hex_to_int(str[2]);
             *ptr++ = byte;
             str += 3;
@@ -42,15 +51,31 @@ static char* url_decode(const char* str) {
     return decoded;
 }
 
-// Function to parse URL-encoded key-value pairs
-static void parse_query_params(char *query, char *key_buf, char *value_buf)
-{
-    char *token;
-    char *rest = query; // Use a temporary pointer for strtok_r
+// Safe buffer size limits
+#define MAX_KEY_LENGTH 512
+#define MAX_VALUE_LENGTH 4096
+#define MAX_URL_LENGTH 8192
 
-    // Initialize buffers to empty strings
-    key_buf[0] = '\0';
-    value_buf[0] = '\0';
+
+
+// Function to parse URL-encoded key-value pairs with safe buffers
+static int parse_query_params_safe(char *query, char **key_out, char **value_out)
+{
+    if (!query || !key_out || !value_out) return 0;
+
+    *key_out = NULL;
+    *value_out = NULL;
+
+    // Check query length for security
+    if (strlen(query) > MAX_URL_LENGTH) {
+        return 0; // Query too long
+    }
+
+    char *query_copy = strdup(query);
+    if (!query_copy) return 0;
+
+    char *token;
+    char *rest = query_copy;
 
     // Iterate through parameters separated by '&'
     while ((token = strtok_r(rest, "&", &rest)))
@@ -62,38 +87,104 @@ static void parse_query_params(char *query, char *key_buf, char *value_buf)
             char *param_name = token;
             char *param_value = equals + 1;
 
-            if (strcmp(param_name, "key") == 0)
+            if (strcmp(param_name, "key") == 0 && strlen(param_value) > 0)
             {
-                strcpy(key_buf, param_value);
-                char* decoded = url_decode(key_buf);
-                strcpy(key_buf, decoded);
+                // Allocate safe buffer for key
+                size_t key_len = strlen(param_value);
+                if (key_len > MAX_KEY_LENGTH) {
+                    free(query_copy);
+                    return 0; // Key too long
+                }
+
+                *key_out = malloc(key_len + 1);
+                if (!*key_out) {
+                    free(query_copy);
+                    return 0;
+                }
+
+                char* decoded = url_decode(param_value);
+                if (!decoded) {
+                    free(*key_out);
+                    *key_out = NULL;
+                    free(query_copy);
+                    return 0;
+                }
+
+                if (strlen(decoded) > MAX_KEY_LENGTH) {
+                    free(decoded);
+                    free(*key_out);
+                    *key_out = NULL;
+                    free(query_copy);
+                    return 0;
+                }
+
+                strcpy(*key_out, decoded);
                 free(decoded);
             }
-            else if (strcmp(param_name, "value") == 0)
+            else if (strcmp(param_name, "value") == 0 && strlen(param_value) > 0)
             {
-                strcpy(value_buf, param_value);
-                char* decoded = url_decode(value_buf);
-                strcpy(value_buf, decoded);
+                // Allocate safe buffer for value
+                size_t value_len = strlen(param_value);
+                if (value_len > MAX_VALUE_LENGTH) {
+                    free(query_copy);
+                    if (*key_out) free(*key_out);
+                    return 0; // Value too long
+                }
+
+                *value_out = malloc(value_len + 1);
+                if (!*value_out) {
+                    free(query_copy);
+                    if (*key_out) free(*key_out);
+                    return 0;
+                }
+
+                char* decoded = url_decode(param_value);
+                if (!decoded) {
+                    free(*value_out);
+                    *value_out = NULL;
+                    if (*key_out) free(*key_out);
+                    free(query_copy);
+                    return 0;
+                }
+
+                if (strlen(decoded) > MAX_VALUE_LENGTH) {
+                    free(decoded);
+                    free(*value_out);
+                    *value_out = NULL;
+                    if (*key_out) free(*key_out);
+                    free(query_copy);
+                    return 0;
+                }
+
+                strcpy(*value_out, decoded);
                 free(decoded);
             }
         }
     }
+
+    free(query_copy);
+    return (*key_out || *value_out) ? 1 : 0;
 }
 
 // Function to parse JSON payload for POST requests - returns dynamically allocated strings
 static int parse_json_payload(const char *payload, char **key, char **value) {
     *key = NULL;
     *value = NULL;
-    
+
+    // Check payload size for security
+    if (!payload || strlen(payload) > MAX_VALUE_LENGTH * 2) {
+        return 0; // Payload too large or null
+    }
+
     // Skip leading whitespace
     while (*payload == ' ' || *payload == '\t' || *payload == '\r' || *payload == '\n') {
         payload++;
     }
-    
+
     // Simple JSON parsing for {"key":"...", "value":"..."} with whitespace tolerance
     char *key_start = strstr(payload, "\"key\"");
     char *value_start = strstr(payload, "\"value\"");
-    
+
     if (key_start) {
         // Find the colon after "key"
         char *colon = strchr(key_start, ':');
@@ -109,16 +200,24 @@ static int parse_json_payload(const char *payload, char **key, char **value) {
                 char *key_end = strchr(colon, '"');
                 if (key_end) {
                     int key_len = key_end - colon;
+
+                    // Validate key length before allocation
+                    if (key_len <= 0 || key_len > MAX_KEY_LENGTH) {
+                        return 0; // Invalid key length
+                    }
+
                     *key = malloc(key_len + 1);
                     if (*key) {
-                        strncpy(*key, colon, key_len);
-                        (*key)[key_len] = '\0';
+                        memcpy(*key, colon, key_len);
+                        (*key)[key_len] = '\0'; // Ensure null termination
+                    } else {
+                        return 0; // Memory allocation failed
                     }
                 }
             }
         }
     }
-    
+
     if (value_start) {
         // Find the colon after "value"
         char *colon = strchr(value_start, ':');
@@ -134,16 +233,28 @@ static int parse_json_payload(const char *payload, char **key, char **value) {
                 char *value_end = strchr(colon, '"');
                 if (value_end) {
                     int value_len = value_end - colon;
+
+                    // Validate value length before allocation
+                    if (value_len <= 0 || value_len > MAX_VALUE_LENGTH) {
+                        if (*key) free(*key);
+                        *key = NULL;
+                        return 0; // Invalid value length
+                    }
+
                     *value = malloc(value_len + 1);
                     if (*value) {
-                        strncpy(*value, colon, value_len);
-                        (*value)[value_len] = '\0';
+                        memcpy(*value, colon, value_len);
+                        (*value)[value_len] = '\0'; // Ensure null termination
+                    } else {
+                        if (*key) free(*key);
+                        *key = NULL;
+                        return 0; // Memory allocation failed
                     }
                 }
             }
         }
     }
-    
+
     return (*key != NULL && *value != NULL) ? 1 : 0;
 }
 
@@ -169,13 +280,21 @@ static int read_full_request(int client_socket, char *buffer, int buffer_size) {
     
     // Read the complete request in chunks
     while (total_read < buffer_size - 1) {
-        bytes_read = read(client_socket, buffer + total_read, buffer_size - 1 - total_read);
-        
+        size_t remaining_space = buffer_size - 1 - total_read;
+        bytes_read = read(client_socket, buffer + total_read, remaining_space);
+
         if (bytes_read <= 0) {
             break;
         }
-        
+
         total_read += bytes_read;
+
+        // Ensure we don't overflow the buffer
+        if (total_read >= buffer_size - 1) {
+            buffer[buffer_size - 1] = '\0';
+            break;
+        }
+
         buffer[total_read] = '\0';
         
         // Check if we have received the complete request
@@ -185,11 +304,14 @@ static int read_full_request(int client_socket, char *buffer, int buffer_size) {
             char *content_length_header = strstr(buffer, "Content-Length:");
             if (content_length_header) {
                 int content_length = 0;
-                sscanf(content_length_header, "Content-Length: %d", &content_length);
-                
-                // Check if body size exceeds buffer capacity
-                if (content_length > (BUFFER_SIZE - 1000)) { // Reserve space for headers
-                    return -1; // Request too large
+                // Safe parsing with validation
+                if (sscanf(content_length_header, "Content-Length: %d", &content_length) != 1) {
+                    return -1; // Invalid Content-Length header
+                }
+
+                // Check for negative or unreasonably large content lengths
+                if (content_length < 0 || content_length > (BUFFER_SIZE - 1000)) {
+                    return -1; // Invalid or too large content length
                 }
                 
                 // Find where headers end
@@ -314,19 +436,21 @@ void handle_client(int client_socket)
             if (request_type != REQ_GET) {
                 send_response(client_socket, 405, "Method Not Allowed", "{\"error\":\"GET method required\"}");
             } else {
-                char key[1024] = {0};
-                char dummy_value[1024] = {0};
-                
+                char *key = NULL;
+                char *dummy_value = NULL;
+
                 if (query) {
-                    parse_query_params(query, key, dummy_value);
+                    parse_query_params_safe(query, &key, &dummy_value);
                 }
-                
-                if (strlen(key) == 0) {
+
+                if (!key || strlen(key) == 0) {
                     send_response(client_socket, 400, "Bad Request", "{\"error\":\"Missing key parameter\"}");
+                    if (key) free(key);
+                    if (dummy_value) free(dummy_value);
                 } else {
                     char *result_value;
                     int result = zget_command(key, &result_value);
-                    
+
                     if (result == CMD_SUCCESS && result_value != NULL) {
                         // Dynamically allocate response body to handle large values
                         size_t response_size = strlen(result_value) + 100; // Extra space for JSON structure
@@ -342,6 +466,8 @@ void handle_client(int client_socket)
                     } else {
                         send_response(client_socket, 404, "Not Found", "{\"error\":\"Key not found\"}");
                     }
+                    free(key);
+                    if (dummy_value) free(dummy_value);
                 }
             }
             break;
@@ -485,12 +611,22 @@ void start_inhouse_rest_server(void)
 
     printf("Starting in-house REST server on port %d\n", PORT);
 
+    // Set server socket to non-blocking mode to allow clean shutdown
+    int flags = fcntl(server_fd, F_GETFL, 0);
+    fcntl(server_fd, F_SETFL, flags | O_NONBLOCK);
+
     while (server_running)
     {
         if ((client_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen)) < 0)
         {
-            perror("accept");
-            exit(EXIT_FAILURE);
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // No incoming connection, sleep briefly and check shutdown flag again
+                usleep(10000); // 10ms
+                continue;
+            } else {
+                perror("accept");
+                exit(EXIT_FAILURE);
+            }
         }
         handle_client(client_socket);
     }

@@ -19,6 +19,7 @@
 
 // Global for thread
 pthread_t server_thread;
+volatile int server_shutdown = 0;
 
 
 // Command enum for switch statement
@@ -137,10 +138,11 @@ void handle_init_db() {
 
 // Function to handle cache_status command
 void handle_cache_status() {
+    pthread_mutex_lock(&cache_mutex);
     int result = cache_status();
     if (result == CMD_ERROR) {
         printf("Cache is not initialized\n");
-    } else if (result == CMD_SUCCESS) {
+    } else if (result == CMD_SUCCESS && memory_cache != NULL) {
         printf("Cache status: %d items used\n", memory_cache->size);
         for (unsigned int i = 0; i < memory_cache->size; i++) {
             DataItem *item = memory_cache->table[i];
@@ -150,7 +152,10 @@ void handle_cache_status() {
                 item = item->next;
             }
         }
+    } else {
+        printf("Cache is not available\n");
     }
+    pthread_mutex_unlock(&cache_mutex);
 }
 
 // Function to handle benchmark command
@@ -305,9 +310,20 @@ int main(void)
 
                 // Join the server thread
                 printf("Shutting down REST server...\n");
-                // Assuming we add a way to stop the server loop, for now just cancel
-                pthread_cancel(server_thread);
-                pthread_join(server_thread, NULL);
+                // Signal the server thread to stop cleanly
+                extern volatile int server_running;
+                server_running = 0;
+
+                // Wait for the server thread to finish (max 2 seconds)
+                // The non-blocking socket will allow the thread to exit quickly
+                for (int i = 0; i < 20; i++) { // 20 * 100ms = 2 seconds
+                    usleep(100000); // 100ms
+                }
+
+                // Final join (this will wait if thread is still running)
+                if (pthread_join(server_thread, NULL) != 0) {
+                    perror("Failed to join server thread");
+                }
                 printf("REST server shut down.\n");
                 goto cleanup;
 
@@ -327,7 +343,7 @@ int main(void)
 
             case CMD_UNKNOWN:
             default:
-                printf("Unknown command: '%s'. Type 'help' for available commands", command_token);
+                printf("Unknown command: '%s'. Type 'help' for available commands\n", command_token ? command_token : "(null)");
                 break;
         }
 
