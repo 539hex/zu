@@ -8,6 +8,12 @@
 // Extern declarations for global cache variables
 extern HashTable *memory_cache;
 
+// Mutex for protecting cache operations
+extern pthread_mutex_t cache_mutex;
+
+// Mutex for protecting file operations (thread-safe file access)
+extern pthread_mutex_t file_mutex;
+
 // --- Cache Management Function Declarations ---
 void init_cache(void);
 void free_cache(void);

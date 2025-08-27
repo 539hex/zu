@@ -92,33 +92,76 @@ void hash_table_insert(HashTable *ht, const char *key, const char *value)
         ht->table[index] = new_item;
     }
 
-    // After insert, check size
-    unsigned int total_items = 0;
-    for (unsigned int i = 0; i < ht->size; i++) {
-        DataItem *item = ht->table[i];
-        while (item) {
-            total_items++;
-            item = item->next;
+    // After insert, check size and perform LRU eviction if needed
+    static unsigned int cached_item_count = 0; // Cache the count to avoid full scans
+    unsigned int current_items = 0;
+
+    // Count items efficiently (with periodic full recount for accuracy)
+    if (cached_item_count == 0 || (cached_item_count % 100) == 0) {
+        // Periodic full recount to maintain accuracy
+        current_items = 0;
+        for (unsigned int i = 0; i < ht->size; i++) {
+            DataItem *item = ht->table[i];
+            while (item) {
+                current_items++;
+                item = item->next;
+            }
         }
+        cached_item_count = current_items;
+    } else {
+        current_items = cached_item_count + 1; // We just added one item
     }
-    while (total_items > CACHE_SIZE) {
-        // Find LRU (lowest last_accessed)
+
+    // Perform LRU eviction with safety bounds
+    unsigned int eviction_attempts = 0;
+    const unsigned int max_evictions = CACHE_SIZE * 2; // Safety limit
+
+    while (current_items > CACHE_SIZE && eviction_attempts < max_evictions) {
+        // Find LRU (lowest last_accessed) - avoid infinite loops
         DataItem *lru = NULL;
         unsigned int lru_time = UINT_MAX;
+
+        // Scan hash table to find LRU item
         for (unsigned int i = 0; i < ht->size; i++) {
             DataItem *item = ht->table[i];
             while (item) {
                 if (item->last_accessed < lru_time) {
                     lru_time = item->last_accessed;
                     lru = item;
+                } else if (item->last_accessed == lru_time && item < lru) {
+                    // Tie-breaker: prefer lower memory address to avoid loops
+                    lru = item;
                 }
                 item = item->next;
             }
         }
-        if (lru) {
+
+        if (lru && lru->key) {
+            // Attempt to remove the LRU item
             hash_table_remove(ht, lru->key);
-            total_items--;
+            current_items--;
+            cached_item_count = current_items;
+            eviction_attempts++;
+        } else {
+            // No removable items found, break to prevent infinite loop
+            break;
         }
+    }
+
+    // If we hit the safety limit, something is wrong - reset the cache
+    if (eviction_attempts >= max_evictions) {
+        // Emergency: clear the entire cache to prevent infinite loops
+        for (unsigned int i = 0; i < ht->size; i++) {
+            DataItem *item = ht->table[i];
+            while (item) {
+                DataItem *next = item->next;
+                free_data_item_contents(item);
+                free(item);
+                item = next;
+            }
+            ht->table[i] = NULL;
+        }
+        cached_item_count = 0;
     }
 }
 

@@ -127,19 +127,34 @@ char **get_all_keys_from_benchmark_db(const char *filename, int *num_keys)
     {
         if (count >= capacity) {
             capacity *= 2;
-            keys = realloc(keys, sizeof(char *) * capacity);
-            if (!keys) {
+            char **new_keys = realloc(keys, sizeof(char *) * capacity);
+            if (!new_keys) {
                 perror("Failed to reallocate memory for keys");
                 // Free already allocated keys
                 for (int i = 0; i < count; i++) {
                     free(keys[i]);
                 }
+                free(keys);
                 *num_keys = 0;
                 fclose(file);
                 return NULL;
             }
+            keys = new_keys;
         }
-        keys[count++] = my_strdup(current_key);
+
+        char *key_copy = my_strdup(current_key);
+        if (!key_copy) {
+            perror("Failed to allocate memory for key copy");
+            // Free already allocated keys
+            for (int i = 0; i < count; i++) {
+                free(keys[i]);
+            }
+            free(keys);
+            *num_keys = 0;
+            fclose(file);
+            return NULL;
+        }
+        keys[count++] = key_copy;
         free(current_key);
         free(current_value);
     }
