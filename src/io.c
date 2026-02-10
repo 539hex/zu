@@ -764,10 +764,20 @@ int ensure_database_exists(void) {
 
     // Database doesn't exist, ask user
     printf("Database does not exist. Create empty database? (YES/NO): ");
-    char response[10];
+    char response[256];
     if (!fgets(response, sizeof(response), stdin)) {
         pthread_mutex_unlock(&file_mutex);
         return 0;  // Error reading input
+    }
+    // Check if input was truncated
+    size_t len = strlen(response);
+    if (len > 0 && response[len-1] != '\n' && !feof(stdin)) {
+        // Input was truncated, clear the rest
+        int c;
+        while ((c = getchar()) != '\n' && c != EOF);
+        printf("Input too long. Database creation cancelled.\n");
+        pthread_mutex_unlock(&file_mutex);
+        return 0;
     }
 
     // Remove newline if present
