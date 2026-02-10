@@ -121,13 +121,20 @@ int read_item_from_file(FILE *file, char **key, char **value) {
 
 int load_all_data_from_disk(DataItem **full_data_list, size_t *list_size, size_t *list_capacity)
 {
-    FILE *file = fopen(FILENAME, "rb");
-    if (file == NULL)
+    int fd = open(FILENAME, O_RDONLY | O_CLOEXEC);
+    if (fd == -1)
     {
-        return 1; // File not found, that's okay
+        if (errno == ENOENT) return 1; // File not found, that's okay
+        return 0;
     }
-    if (flock(fileno(file), LOCK_SH) == -1) { // Shared lock for reading
-        fclose(file);
+    if (flock(fd, LOCK_SH) == -1) { // Shared lock for reading
+        close(fd);
+        return 0;
+    }
+    FILE *file = fdopen(fd, "rb");
+    if (file == NULL) {
+        flock(fd, LOCK_UN);
+        close(fd);
         return 0;
     }
 
@@ -160,6 +167,11 @@ int load_all_data_from_disk(DataItem **full_data_list, size_t *list_size, size_t
             if ((*full_data_list)[*list_size].value) free((*full_data_list)[*list_size].value);
             free(current_key);
             free(current_value);
+            // Free all previously allocated items
+            for (size_t j = 0; j < *list_size; j++) {
+                free((*full_data_list)[j].key);
+                free((*full_data_list)[j].value);
+            }
             flock(fileno(file), LOCK_UN);
             fclose(file);
             return 0;
@@ -206,11 +218,10 @@ void save_all_data_to_disk(DataItem *data_list, size_t list_size)
         }
     }
 
+    flock(fileno(file), LOCK_UN);
     if (fclose(file) != 0)
     {
         perror("Failed to close file after writing all data");
-    } else {
-        flock(fileno(file), LOCK_UN);
     }
 }
 
@@ -359,9 +370,15 @@ int remove_key_from_disk(const char *key)
             if (items_size >= items_capacity)
             {
                 items_capacity = items_capacity == 0 ? 10 : items_capacity * 2;
-                items = realloc(items, items_capacity * sizeof(DataItem));
-                if (!items)
+                DataItem *new_items = realloc(items, items_capacity * sizeof(DataItem));
+                if (!new_items)
                 {
+                    // Free all previously allocated items
+                    for (size_t j = 0; j < items_size; j++) {
+                        free(items[j].key);
+                        free(items[j].value);
+                    }
+                    free(items);
                     free(current_key);
                     free(current_value);
                     flock(fileno(file), LOCK_UN);
@@ -369,6 +386,7 @@ int remove_key_from_disk(const char *key)
                     pthread_mutex_unlock(&file_mutex);
                     return -1;
                 }
+                items = new_items;
             }
             items[items_size].key = current_key;
             items[items_size].value = current_value;
@@ -488,7 +506,22 @@ int update_key_on_disk(const char *key, const char *new_value)
             if (items_size >= items_capacity)
             {
                 items_capacity = items_capacity == 0 ? 10 : items_capacity * 2;
-                items = realloc(items, items_capacity * sizeof(DataItem));
+                DataItem *new_items = realloc(items, items_capacity * sizeof(DataItem));
+                if (!new_items) {
+                    // Free all previously allocated items
+                    for (size_t j = 0; j < items_size; j++) {
+                        free(items[j].key);
+                        free(items[j].value);
+                    }
+                    free(items);
+                    free(current_key);
+                    free(current_value);
+                    flock(fileno(file), LOCK_UN);
+                    fclose(file);
+                    pthread_mutex_unlock(&file_mutex);
+                    return -1;
+                }
+                items = new_items;
             }
             items[items_size].key = current_key;
             items[items_size].value = current_value;
@@ -504,10 +537,33 @@ int update_key_on_disk(const char *key, const char *new_value)
         if (items_size >= items_capacity)
         {
             items_capacity = items_capacity == 0 ? 10 : items_capacity * 2;
-            items = realloc(items, items_capacity * sizeof(DataItem));
+            DataItem *new_items = realloc(items, items_capacity * sizeof(DataItem));
+            if (!new_items) {
+                // Free all previously allocated items
+                for (size_t j = 0; j < items_size; j++) {
+                    free(items[j].key);
+                    free(items[j].value);
+                }
+                free(items);
+                pthread_mutex_unlock(&file_mutex);
+                return -1;
+            }
+            items = new_items;
         }
         items[items_size].key = my_strdup(key);
         items[items_size].value = my_strdup(new_value);
+        if (!items[items_size].key || !items[items_size].value) {
+            if (items[items_size].key) free(items[items_size].key);
+            if (items[items_size].value) free(items[items_size].value);
+            // Free all previously allocated items
+            for (size_t j = 0; j < items_size; j++) {
+                free(items[j].key);
+                free(items[j].value);
+            }
+            free(items);
+            pthread_mutex_unlock(&file_mutex);
+            return -1;
+        }
         items_size++;
     }
 
@@ -515,10 +571,22 @@ int update_key_on_disk(const char *key, const char *new_value)
     file = fopen(FILENAME, "wb");
     if (file == NULL)
     {
+        // Free all allocated items
+        for (size_t j = 0; j < items_size; j++) {
+            free(items[j].key);
+            free(items[j].value);
+        }
+        free(items);
         pthread_mutex_unlock(&file_mutex);
         return -1;
     }
     if (flock(fileno(file), LOCK_EX) == -1) {
+        // Free all allocated items
+        for (size_t j = 0; j < items_size; j++) {
+            free(items[j].key);
+            free(items[j].value);
+        }
+        free(items);
         fclose(file);
         pthread_mutex_unlock(&file_mutex);
         return -1;
@@ -595,9 +663,15 @@ int cleanup_duplicate_keys(void)
             if (items_size >= items_capacity)
             {
                 items_capacity = items_capacity == 0 ? 10 : items_capacity * 2;
-                items = realloc(items, items_capacity * sizeof(DataItem));
-                if (!items)
+                DataItem *new_items = realloc(items, items_capacity * sizeof(DataItem));
+                if (!new_items)
                 {
+                    // Free all previously allocated items
+                    for (size_t j = 0; j < items_size; j++) {
+                        free(items[j].key);
+                        free(items[j].value);
+                    }
+                    free(items);
                     free(current_key);
                     free(current_value);
                     flock(fileno(file), LOCK_UN);
@@ -605,6 +679,7 @@ int cleanup_duplicate_keys(void)
                     pthread_mutex_unlock(&file_mutex);
                     return -1;
                 }
+                items = new_items;
             }
             items[items_size].key = current_key;
             items[items_size].value = current_value;
@@ -632,6 +707,7 @@ int cleanup_duplicate_keys(void)
             free(items[i].value);
         }
         free(items);
+        pthread_mutex_unlock(&file_mutex);
         return -1;
     }
     if (flock(fileno(file), LOCK_EX) == -1) {
@@ -764,10 +840,20 @@ int ensure_database_exists(void) {
 
     // Database doesn't exist, ask user
     printf("Database does not exist. Create empty database? (YES/NO): ");
-    char response[10];
+    char response[256];
     if (!fgets(response, sizeof(response), stdin)) {
         pthread_mutex_unlock(&file_mutex);
         return 0;  // Error reading input
+    }
+    // Check if input was truncated
+    size_t len = strlen(response);
+    if (len > 0 && response[len-1] != '\n' && !feof(stdin)) {
+        // Input was truncated, clear the rest
+        int c;
+        while ((c = getchar()) != '\n' && c != EOF);
+        printf("Input too long. Database creation cancelled.\n");
+        pthread_mutex_unlock(&file_mutex);
+        return 0;
     }
 
     // Remove newline if present
