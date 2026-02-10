@@ -1,7 +1,7 @@
 # Compiler settings
 CC = gcc
 CFLAGS = -Wall -g -O2 -Isrc -std=c11
-LDFLAGS = -lreadline
+LDFLAGS = -lreadline -pie -Wl,-z,relro,-z,now
 
 # Source directories
 SRC_DIR = src
