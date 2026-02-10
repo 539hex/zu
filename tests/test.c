@@ -130,7 +130,7 @@ static void test_cache_status(void) {
     assert(result == CMD_SUCCESS);
     char* value;
     assert(zget_command("status_key", &value) == CMD_SUCCESS);
-    assert(strcmp(value, "status_value") == 0);
+    assert(value != NULL && strcmp(value, "status_value") == 0);
     free(value);
     
     // Check cache status
