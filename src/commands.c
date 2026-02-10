@@ -108,13 +108,28 @@ int zall_command()
 
 int init_db_command()
 {
-    srand(time(NULL));
+    // Use a cryptographically secure random number generator
+    // For example, read from /dev/urandom on Unix systems
+    FILE *urandom = fopen("/dev/urandom", "rb");
+    if (urandom) {
+        unsigned int seed;
+        if (fread(&seed, sizeof(seed), 1, urandom) == 1) {
+            srand(seed);
+        }
+        fclose(urandom);
+    } else {
+        srand(time(NULL)); // Fallback
+    }
     const int MIN_LENGTH = 4;
     const int MAX_LENGTH = 64;
 
-    FILE *file = fopen(FILENAME, "wb");
+    // Use exclusive creation mode to prevent race conditions
+    FILE *file = fopen(FILENAME, "wbx");
     if (!file)
     {
+        // If file exists, decide whether to overwrite or fail
+        // For init_db, we might want to fail if file exists
+        fprintf(stderr, "Error: Database file already exists or cannot be created\n");
         return CMD_ERROR;
     }
 
@@ -124,18 +139,28 @@ int init_db_command()
         int value_length = MIN_LENGTH + (rand() % (MAX_LENGTH - MIN_LENGTH + 1));
 
         char *buffer_key = malloc(key_length + 1);
+        if (!buffer_key)
+        {
+            fclose(file);
+            return CMD_ERROR;
+        }
+        
         char *buffer_value = malloc(value_length + 1);
-
-        if (!buffer_key || !buffer_value)
+        if (!buffer_value)
         {
             free(buffer_key);
-            free(buffer_value);
             fclose(file);
             return CMD_ERROR;
         }
 
+        // Ensure generate_random_alphanumeric properly null-terminates
+        buffer_key[key_length] = '\0';
+        buffer_value[value_length] = '\0';
         generate_random_alphanumeric(buffer_key, key_length);
         generate_random_alphanumeric(buffer_value, value_length);
+        // Verify null termination after generation
+        buffer_key[key_length] = '\0';
+        buffer_value[value_length] = '\0';
 
         if (!write_item_to_file(file, buffer_key, buffer_value))
         {
@@ -189,8 +214,15 @@ int benchmark_command(void)
 
     // 2. Get all keys from the benchmark database
     keys = get_all_keys_from_benchmark_db(benchmark_filename, &num_keys);
-    if (!keys || num_keys == 0)
+    if (!keys)
     {
+        cleanup_benchmark_db(benchmark_filename);
+        return CMD_ERROR;
+    }
+    if (num_keys == 0)
+    {
+        // Free the empty keys array if allocated
+        free(keys);
         cleanup_benchmark_db(benchmark_filename);
         return CMD_ERROR;
     }
@@ -200,11 +232,18 @@ int benchmark_command(void)
     for (int i = 0; i < num_keys; i++)
     {
         if (!keys[i]) continue; // Skip NULL keys (defensive programming)
-        char *value;
+        char *value = NULL;
         int result = zget_command(keys[i], &value);
-        if (result == CMD_SUCCESS && value) {
-            free(value);
+        if (result == CMD_SUCCESS) {
+            if (value) {
+                free(value);
+            }
+        } else if (result == CMD_ERROR) {
+            // Log error but continue benchmark
+            fprintf(stderr, "Warning: Failed to get key during benchmark\n");
         }
+        // Ensure value is NULL for next iteration
+        value = NULL;
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     get_time = (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_nsec - start.tv_nsec) / 1000000.0;
@@ -225,8 +264,12 @@ int benchmark_command(void)
     printf("  • Total keys processed: %d\n", num_keys);
     printf("  • Get operations time: %.2f ms\n", get_time);
     printf("\nPerformance Metrics:\n");
-    printf("  • Average time per get operation: %.4f ms\n", get_time / num_keys);
-    printf("  • Get operations per second: %.2f ops/sec\n", (num_keys * 1000.0) / get_time);
+    if (num_keys > 0) {
+        printf("  • Average time per get operation: %.4f ms\n", get_time / num_keys);
+    }
+    if (get_time > 0) {
+        printf("  • Get operations per second: %.2f ops/sec\n", (num_keys * 1000.0) / get_time);
+    }
     printf("  • Total benchmark time: %.2f ms\n", init_time + get_time);
     printf("  • Database size: %d entries\n", BENCHMARK_DB_SIZE);
 
