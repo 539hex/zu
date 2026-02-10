@@ -313,15 +313,19 @@ int main(void)
                 // Signal the server thread to stop cleanly
                 extern volatile int server_running;
                 server_running = 0;
+                server_shutdown = 1;
 
-                // Wait for the server thread to finish (max 2 seconds)
-                // The non-blocking socket will allow the thread to exit quickly
-                for (int i = 0; i < 20; i++) { // 20 * 100ms = 2 seconds
-                    usleep(100000); // 100ms
-                }
-
-                // Final join (this will wait if thread is still running)
-                if (pthread_join(server_thread, NULL) != 0) {
+                // Use pthread_tryjoin_np with timeout or pthread_cancel as fallback
+                struct timespec timeout;
+                clock_gettime(CLOCK_REALTIME, &timeout);
+                timeout.tv_sec += 2; // 2 second timeout
+                
+                int join_result = pthread_timedjoin_np(server_thread, NULL, &timeout);
+                if (join_result == ETIMEDOUT) {
+                    fprintf(stderr, "Server thread did not exit in time, canceling...\n");
+                    pthread_cancel(server_thread);
+                    pthread_join(server_thread, NULL);
+                } else if (join_result != 0) {
                     perror("Failed to join server thread");
                 }
                 printf("REST server shut down.\n");
