@@ -59,6 +59,12 @@ void handle_zset(char *key_token, char *value_token) {
         return;
     }
 
+    // Validate key and value lengths
+    if (strlen(key_token) > MAX_KEY_LENGTH || strlen(value_token) > MAX_VALUE_LENGTH) {
+        printf("Error: Key or value exceeds maximum length\n");
+        return;
+    }
+
     // Trim leading spaces from value
     while (*value_token && isspace((unsigned char)*value_token)) {
         value_token++;
@@ -147,8 +153,11 @@ void handle_cache_status() {
         for (unsigned int i = 0; i < memory_cache->size; i++) {
             DataItem *item = memory_cache->table[i];
             while (item) {
-                printf("  Key: %s, Value: %s, Hits: %u, Last accessed: %u\n",
-                       item->key, item->value, item->hit_count, item->last_accessed);
+                // Verify item is still valid before dereferencing
+                if (item->key && item->value) {
+                    printf("  Key: %s, Value: %s, Hits: %u, Last accessed: %u\n",
+                           item->key, item->value, item->hit_count, item->last_accessed);
+                }
                 item = item->next;
             }
         }
@@ -196,9 +205,12 @@ int main(void)
     struct timespec cache_timer_val;   // For the cache timer
 
     // Remove fork, start server in thread
+    int server_started = 0;
     if (pthread_create(&server_thread, NULL, (void*)start_inhouse_rest_server, NULL) != 0) {
         perror("Failed to start REST server thread");
-        // Continue or exit?
+        fprintf(stderr, "Warning: REST server will not be available\n");
+    } else {
+        server_started = 1;
     }
 
     // No longer calling waitpid with WNOHANG here.
@@ -235,7 +247,9 @@ int main(void)
             add_history(line);
         }
 
-        command_token = strtok(line, " \t");
+        // Use thread-safe strtok_r instead
+        char *saveptr;
+        command_token = strtok_r(line, " \t", &saveptr);
         if (command_token == NULL || *command_token == '\0')
         {
             free(line);
@@ -298,7 +312,9 @@ int main(void)
                 break;
 
             case CMD_CLEAR:
-                clear();                                           // Clear the terminal screen
+                // Use ANSI escape codes instead of system("clear")
+                printf("\033[2J\033[H");  // Clear screen and move cursor to home
+                fflush(stdout);
                 exec_time = command_timer_end(&command_timer_val); // Stop timer for 'clear'
                 free(line);
                 continue; // Don't print time twice for 'clear'
@@ -313,15 +329,19 @@ int main(void)
                 // Signal the server thread to stop cleanly
                 extern volatile int server_running;
                 server_running = 0;
+                server_shutdown = 1;
 
-                // Wait for the server thread to finish (max 2 seconds)
-                // The non-blocking socket will allow the thread to exit quickly
-                for (int i = 0; i < 20; i++) { // 20 * 100ms = 2 seconds
-                    usleep(100000); // 100ms
-                }
-
-                // Final join (this will wait if thread is still running)
-                if (pthread_join(server_thread, NULL) != 0) {
+                // Use pthread_tryjoin_np with timeout or pthread_cancel as fallback
+                struct timespec timeout;
+                clock_gettime(CLOCK_REALTIME, &timeout);
+                timeout.tv_sec += 2; // 2 second timeout
+                
+                int join_result = pthread_timedjoin_np(server_thread, NULL, &timeout);
+                if (join_result == ETIMEDOUT) {
+                    fprintf(stderr, "Server thread did not exit in time, canceling...\n");
+                    pthread_cancel(server_thread);
+                    pthread_join(server_thread, NULL);
+                } else if (join_result != 0) {
                     perror("Failed to join server thread");
                 }
                 printf("REST server shut down.\n");
