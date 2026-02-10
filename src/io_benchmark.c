@@ -23,7 +23,17 @@ static int read_item_from_benchmark_file(FILE *file, char **key, char **value) {
 
 int init_benchmark_db(const char *filename, int num_entries)
 {
-    srand(time(NULL));
+    // For security-sensitive applications, use a cryptographically secure RNG
+    // Example using /dev/urandom on Unix-like systems:
+    FILE *urandom = fopen("/dev/urandom", "rb");
+    unsigned int seed;
+    if (urandom) {
+        fread(&seed, sizeof(seed), 1, urandom);
+        fclose(urandom);
+        srand(seed);
+    } else {
+        srand(time(NULL)); // Fallback
+    }
     const int MIN_LENGTH = 4;
     const int MAX_LENGTH = 64;
 
@@ -95,6 +105,9 @@ char *find_key_in_benchmark_db(const char *filename, const char *key)
         free(current_key);
         free(current_value);
     }
+    // Clean up any remaining allocations if loop exited due to error
+    if (current_key) free(current_key);
+    if (current_value) free(current_value);
 
     fclose(file);
     return found_value;
@@ -130,6 +143,9 @@ char **get_all_keys_from_benchmark_db(const char *filename, int *num_keys)
             char **new_keys = realloc(keys, sizeof(char *) * capacity);
             if (!new_keys) {
                 perror("Failed to reallocate memory for keys");
+                // Free current iteration's allocations
+                free(current_key);
+                free(current_value);
                 // Free already allocated keys
                 for (int i = 0; i < count; i++) {
                     free(keys[i]);
@@ -145,6 +161,9 @@ char **get_all_keys_from_benchmark_db(const char *filename, int *num_keys)
         char *key_copy = my_strdup(current_key);
         if (!key_copy) {
             perror("Failed to allocate memory for key copy");
+            // Free current iteration's allocations
+            free(current_key);
+            free(current_value);
             // Free already allocated keys
             for (int i = 0; i < count; i++) {
                 free(keys[i]);
@@ -166,5 +185,8 @@ char **get_all_keys_from_benchmark_db(const char *filename, int *num_keys)
 
 void cleanup_benchmark_db(const char *filename)
 {
-    unlink(filename);
+    if (unlink(filename) != 0) {
+        perror("Failed to delete benchmark database file");
+        // Optionally return an error code
+    }
 }
