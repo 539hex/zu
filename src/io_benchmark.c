@@ -23,7 +23,17 @@ static int read_item_from_benchmark_file(FILE *file, char **key, char **value) {
 
 int init_benchmark_db(const char *filename, int num_entries)
 {
-    srand(time(NULL));
+    // For security-sensitive applications, use a cryptographically secure RNG
+    // Example using /dev/urandom on Unix-like systems:
+    FILE *urandom = fopen("/dev/urandom", "rb");
+    unsigned int seed;
+    if (urandom) {
+        fread(&seed, sizeof(seed), 1, urandom);
+        fclose(urandom);
+        srand(seed);
+    } else {
+        srand(time(NULL)); // Fallback
+    }
     const int MIN_LENGTH = 4;
     const int MAX_LENGTH = 64;
 
