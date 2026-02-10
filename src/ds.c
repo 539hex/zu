@@ -10,11 +10,14 @@
 // A simple hash function (djb2)
 unsigned int hash_function(const char *key, unsigned int size)
 {
+    if (size == 0) return 0;
     unsigned long hash = 5381;
     int c;
     while ((c = *key++))
     {
-        hash = ((hash << 5) + hash) + c; // hash * 33 + c
+        // Modulo during accumulation to prevent overflow
+        hash = ((hash << 5) + hash) + c;
+        hash = hash % ((unsigned long)size * 1000000UL); // Prevent excessive growth
     }
     return hash % size;
 }
@@ -75,12 +78,20 @@ void hash_table_insert(HashTable *ht, const char *key, const char *value)
 
     // Key not found, create new item
     DataItem *new_item = malloc(sizeof(DataItem));
-    if (!new_item)
-        return; // Handle allocation failure
+    if (!new_item) {
+        // Log error or set error flag
+        return;
+    }
     new_item->key = my_strdup(key);
     new_item->value = my_strdup(value);
+    if (!new_item->key || !new_item->value) {
+        free(new_item->key);
+        free(new_item->value);
+        free(new_item);
+        return;
+    }
     new_item->hit_count = 0;
-    new_item->last_accessed = 0; // Or set current time
+    new_item->last_accessed = 0;
     new_item->next = NULL;
 
     if (prev)
@@ -93,21 +104,15 @@ void hash_table_insert(HashTable *ht, const char *key, const char *value)
     }
 
     // After insert, check size and perform LRU eviction if needed
-    static unsigned int cached_item_count = 0; // Cache the count to avoid full scans
+    // Note: cached_item_count should be per-HashTable, not static
+    // Add 'unsigned int cached_item_count;' to HashTable struct
     unsigned int current_items = 0;
 
-    // Count items efficiently (with periodic full recount for accuracy)
-    if (cached_item_count == 0 || (cached_item_count % 100) == 0) {
-        // Periodic full recount to maintain accuracy
-        current_items = 0;
-        for (unsigned int i = 0; i < ht->size; i++) {
-            DataItem *item = ht->table[i];
-            while (item) {
-                current_items++;
-                item = item->next;
-            }
-        }
-        cached_item_count = current_items;
+    // Maintain accurate count in HashTable struct instead of periodic recounts
+    // Add 'unsigned int item_count;' to HashTable struct
+    // Increment on insert, decrement on remove
+    ht->item_count++;
+    current_items = ht->item_count;
     } else {
         current_items = cached_item_count + 1; // We just added one item
     }
@@ -117,33 +122,41 @@ void hash_table_insert(HashTable *ht, const char *key, const char *value)
     const unsigned int max_evictions = CACHE_SIZE * 2; // Safety limit
 
     while (current_items > CACHE_SIZE && eviction_attempts < max_evictions) {
-        // Find LRU (lowest last_accessed) - avoid infinite loops
         DataItem *lru = NULL;
         unsigned int lru_time = UINT_MAX;
+        unsigned int lru_index = 0;
 
-        // Scan hash table to find LRU item
         for (unsigned int i = 0; i < ht->size; i++) {
             DataItem *item = ht->table[i];
             while (item) {
                 if (item->last_accessed < lru_time) {
                     lru_time = item->last_accessed;
-                    lru = item;
-                } else if (item->last_accessed == lru_time && item < lru) {
-                    // Tie-breaker: prefer lower memory address to avoid loops
-                    lru = item;
+                } else if (item->last_accessed == lru_time) {
+                    // Tie-breaker: use deterministic comparison (e.g., key comparison)
+                    if (lru == NULL || strcmp(item->key, lru->key) < 0) {
+                        lru = item;
+                    }
+                }
+                    lru_index = i;
                 }
                 item = item->next;
             }
         }
 
         if (lru && lru->key) {
-            // Attempt to remove the LRU item
-            hash_table_remove(ht, lru->key);
+            char *key_copy = my_strdup(lru->key);
+            if (!key_copy) break;
+            unsigned int items_before = current_items;
+            hash_table_remove(ht, key_copy);
+            free(key_copy);
+            // Verify removal actually happened
+            if (hash_table_search(ht, lru->key) != NULL) {
+                break; // Removal failed, exit to prevent infinite loop
+            }
             current_items--;
             cached_item_count = current_items;
             eviction_attempts++;
         } else {
-            // No removable items found, break to prevent infinite loop
             break;
         }
     }
