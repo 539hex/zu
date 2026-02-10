@@ -270,7 +270,12 @@ static void send_response(int client_socket, int status_code, const char *status
              "\r\n"
              "%s", 
              status_code, status_text, ZU_VERSION, strlen(body), body);
-    send(client_socket, response, strlen(response), 0);
+    ssize_t sent = send(client_socket, response, strlen(response), 0);
+    if (sent < 0) {
+        perror("send failed");
+    } else if ((size_t)sent < strlen(response)) {
+        fprintf(stderr, "Warning: partial send (%zd of %zu bytes)\n", sent, strlen(response));
+    }
 }
 
 // Function to read full HTTP request including body
@@ -387,7 +392,8 @@ void handle_client(int client_socket)
         close(client_socket);
         return;
     }
-    strcpy(header_buffer, buffer);
+    strncpy(header_buffer, buffer, BUFFER_SIZE - 1);
+    header_buffer[BUFFER_SIZE - 1] = '\0';
     
     // Parse HTTP request
     char *method = strtok(header_buffer, " ");
@@ -395,6 +401,8 @@ void handle_client(int client_socket)
     
     if (!method || !uri) {
         send_response(client_socket, 400, "Bad Request", "{\"error\":\"Invalid request\"}");
+        free(buffer);
+        free(header_buffer);
         close(client_socket);
         return;
     }
@@ -435,6 +443,10 @@ void handle_client(int client_socket)
         case ENDPOINT_GET:
             if (request_type != REQ_GET) {
                 send_response(client_socket, 405, "Method Not Allowed", "{\"error\":\"GET method required\"}");
+                free(buffer);
+                free(header_buffer);
+                close(client_socket);
+                return;
             } else {
                 char *key = NULL;
                 char *dummy_value = NULL;
@@ -453,10 +465,45 @@ void handle_client(int client_socket)
 
                     if (result == CMD_SUCCESS && result_value != NULL) {
                         // Dynamically allocate response body to handle large values
-                        size_t response_size = strlen(result_value) + 100; // Extra space for JSON structure
+                        size_t value_len = strlen(result_value);
+                        if (value_len > MAX_VALUE_LENGTH) {
+                            send_response(client_socket, 500, "Internal Server Error", "{\"error\":\"Value too large\"}");
+                            free(result_value);
+                            free(key);
+                            if (dummy_value) free(dummy_value);
+                            free(buffer);
+                            free(header_buffer);
+                            close(client_socket);
+                            return;
+                        }
+                        size_t response_size = value_len * 2 + 200; // Account for escaping + JSON structure // Extra space for JSON structure
                         char *response_body = malloc(response_size);
                         if (response_body) {
-                            snprintf(response_body, response_size, "{\"value\":\"%s\"}", result_value);
+                            // Properly escape JSON special characters
+                            size_t escaped_size = response_size * 2; // Worst case: every char needs escaping
+                            char *escaped_value = malloc(escaped_size);
+                            if (escaped_value) {
+                                char *dst = escaped_value;
+                                for (char *src = result_value; *src && (dst - escaped_value) < escaped_size - 2; src++) {
+                                    if (*src == '"' || *src == '\\') *dst++ = '\\';
+                                    else if (*src == '\n') { *dst++ = '\\'; *dst++ = 'n'; continue; }
+                                    else if (*src == '\r') { *dst++ = '\\'; *dst++ = 'r'; continue; }
+                                    else if (*src == '\t') { *dst++ = '\\'; *dst++ = 't'; continue; }
+                                    *dst++ = *src;
+                                }
+                                *dst = '\0';
+                                snprintf(response_body, response_size, "{\"value\":\"%s\"}", escaped_value);
+                                free(escaped_value);
+                            } else {
+                                send_response(client_socket, 500, "Internal Server Error", "{\"error\":\"Memory allocation failed\"}");
+                                free(result_value);
+                                free(key);
+                                if (dummy_value) free(dummy_value);
+                                free(buffer);
+                                free(header_buffer);
+                                close(client_socket);
+                                return;
+                            }
                             send_response(client_socket, 200, "", response_body);
                             free(response_body);
                         } else {
@@ -475,6 +522,10 @@ void handle_client(int client_socket)
         case ENDPOINT_SET:
             if (request_type != REQ_POST) {
                 send_response(client_socket, 405, "Method Not Allowed", "{\"error\":\"POST method required\"}");
+                free(buffer);
+                free(header_buffer);
+                close(client_socket);
+                return;
             } else {
                 #if DEBUG_HTTP
                 printf("DEBUG: Processing SET request, buffer length: %d\n", (int)strlen(buffer));
@@ -518,6 +569,10 @@ void handle_client(int client_socket)
                         printf("DEBUG: No body separator found at all\n");
                         #endif
                         send_response(client_socket, 400, "Bad Request", "{\"error\":\"Missing request body\"}");
+                        free(buffer);
+                        free(header_buffer);
+                        close(client_socket);
+                        return;
                     } else {
                         #if DEBUG_HTTP
                         printf("DEBUG: Found \\n\\n separator at position %ld\n", payload_start - buffer);
