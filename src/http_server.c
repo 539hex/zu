@@ -453,7 +453,18 @@ void handle_client(int client_socket)
 
                     if (result == CMD_SUCCESS && result_value != NULL) {
                         // Dynamically allocate response body to handle large values
-                        size_t response_size = strlen(result_value) + 100; // Extra space for JSON structure
+                        size_t value_len = strlen(result_value);
+                        if (value_len > MAX_VALUE_LENGTH) {
+                            send_response(client_socket, 500, "Internal Server Error", "{\"error\":\"Value too large\"}");
+                            free(result_value);
+                            free(key);
+                            if (dummy_value) free(dummy_value);
+                            free(buffer);
+                            free(header_buffer);
+                            close(client_socket);
+                            return;
+                        }
+                        size_t response_size = value_len * 2 + 200; // Account for escaping + JSON structure // Extra space for JSON structure
                         char *response_body = malloc(response_size);
                         if (response_body) {
                             snprintf(response_body, response_size, "{\"value\":\"%s\"}", result_value);
