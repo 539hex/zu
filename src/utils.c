@@ -17,5 +17,5 @@ void generate_random_alphanumeric(char *str, size_t length) {
         int key = rand() % charset_size; // Generate a random index into the charset
         str[i] = charset[key];
     }
-    str[length] = '\0'; // Null-terminate the string
-}
+    if (length > 0) { str[length - 1] = '\0'; } else { str[0] = '\0'; }
+// Handle zero-length case separately to avoid negative indexing}
