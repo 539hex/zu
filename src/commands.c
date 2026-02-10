@@ -200,11 +200,18 @@ int benchmark_command(void)
     for (int i = 0; i < num_keys; i++)
     {
         if (!keys[i]) continue; // Skip NULL keys (defensive programming)
-        char *value;
+        char *value = NULL;
         int result = zget_command(keys[i], &value);
-        if (result == CMD_SUCCESS && value) {
-            free(value);
+        if (result == CMD_SUCCESS) {
+            if (value) {
+                free(value);
+            }
+        } else if (result == CMD_ERROR) {
+            // Log error but continue benchmark
+            fprintf(stderr, "Warning: Failed to get key during benchmark\n");
         }
+        // Ensure value is NULL for next iteration
+        value = NULL;
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     get_time = (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_nsec - start.tv_nsec) / 1000000.0;
