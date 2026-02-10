@@ -12,20 +12,25 @@
 
 /* The following lines make up our testing "framework" :) */
 static int tests = 0, fails = 0, skips = 0;
-#define test(_s) { printf("#%02d ", ++tests); printf(_s); }
+#define test(_s) { printf("#%02d ", ++tests); printf("%s", _s); }
 #define test_cond(_c) do { if(_c) { printf("\033[0;32mPASSED\033[0;0m\n\n"); } else { printf("\033[0;31mFAILED\033[0;0m\n\n"); fails++; } } while(0)
 #define test_skipped() { printf("\033[01;33mSKIPPED\033[0;0m\n\n"); skips++; }
 
 
 // Helper function to clean up test database
 static void cleanup_test_db(void) {
-    unlink(FILENAME);
+    // Verify FILENAME is in a safe test directory
+    if (strstr(FILENAME, "/tmp/") == FILENAME || strstr(FILENAME, "./test_") == FILENAME) {
+        if (unlink(FILENAME) == -1 && errno != ENOENT) {
+        perror("Warning: Failed to delete test database");
+    }
+    }
 }
 
 // Helper function to initialize test database
 static void init_test_db(void) {
     // Create an empty database file
-    int fd = open(FILENAME, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    int fd = open(FILENAME, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (fd == -1) {
         perror("Failed to create test database file");
         exit(1);
@@ -67,7 +72,10 @@ static void test_cache_operations(void) {
     char* get_result;
     assert(zget_command("cache_key", &get_result) == CMD_SUCCESS);
     assert(strcmp(get_result, "cache_value") == 0);
-    free(get_result);
+    if (get_result) {
+        free(get_result);
+        get_result = NULL;
+    }
     
     // Verify it's in cache
     DataItem *item = get_from_cache("cache_key");
@@ -130,7 +138,7 @@ static void test_cache_status(void) {
     assert(result == CMD_SUCCESS);
     char* value;
     assert(zget_command("status_key", &value) == CMD_SUCCESS);
-    assert(strcmp(value, "status_value") == 0);
+    assert(value != NULL && strcmp(value, "status_value") == 0);
     free(value);
     
     // Check cache status
@@ -139,6 +147,7 @@ static void test_cache_status(void) {
     
     // Test with uninitialized cache
     free_cache();
+    init_cache(); // Re-initialize for subsequent operations
     assert(cache_status() == CMD_ERROR);
     test_cond(result == CMD_SUCCESS);
 }
