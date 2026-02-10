@@ -49,10 +49,12 @@ void add_to_cache(const char *key, const char *value)
 {
     pthread_mutex_lock(&cache_mutex);
     if (memory_cache == NULL) init_cache();
-    hash_table_insert(memory_cache, key, value);
-    // Update last_accessed for the item
-    DataItem *item = hash_table_search(memory_cache, key);
-    if (item) item->last_accessed = (unsigned int)time(NULL);
+    if (hash_table_insert(memory_cache, key, value) == 0) {
+        // Update last_accessed for the item
+        DataItem *item = hash_table_search(memory_cache, key);
+        if (item) item->last_accessed = (time_t)time(NULL);
+    }
+    if (item) item->last_accessed = (time_t)time(NULL);
     pthread_mutex_unlock(&cache_mutex);
 }
 
@@ -64,17 +66,21 @@ DataItem *get_from_cache(const char *key)
         return NULL;
     }
     DataItem* item = hash_table_search(memory_cache, key);
+    DataItem* result = NULL;
     if (item) {
-        if (time(NULL) - item->last_accessed > CACHE_TTL) {
+        if ((time_t)(time(NULL) - item->last_accessed) > CACHE_TTL) {
             remove_from_cache_internal(key);
             pthread_mutex_unlock(&cache_mutex);
             return NULL;
         }
         item->hit_count++;
-        item->last_accessed = (unsigned int)time(NULL);
+        item->last_accessed = (time_t)time(NULL);
+        // Return a deep copy or use reference counting
+        result = malloc(sizeof(DataItem));
+        if (result) memcpy(result, item, sizeof(DataItem));
     }
     pthread_mutex_unlock(&cache_mutex);
-    return item;
+    return result;
 }
 
 void remove_from_cache(const char *key)
