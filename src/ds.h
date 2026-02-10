@@ -28,6 +28,7 @@ DataItem *hash_table_search(HashTable *ht, const char *key);
 void hash_table_remove(HashTable *ht, const char *key);
 
 // --- Helper Function Declarations ---
+// Returns NULL on allocation failure - caller MUST check return value
 char *my_strdup(const char *s);
 void free_data_item_contents(DataItem *item);
 void free_data_list(DataItem **list, size_t *size, size_t *capacity);
