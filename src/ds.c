@@ -117,33 +117,36 @@ void hash_table_insert(HashTable *ht, const char *key, const char *value)
     const unsigned int max_evictions = CACHE_SIZE * 2; // Safety limit
 
     while (current_items > CACHE_SIZE && eviction_attempts < max_evictions) {
-        // Find LRU (lowest last_accessed) - avoid infinite loops
         DataItem *lru = NULL;
         unsigned int lru_time = UINT_MAX;
+        unsigned int lru_index = 0;
 
-        // Scan hash table to find LRU item
         for (unsigned int i = 0; i < ht->size; i++) {
             DataItem *item = ht->table[i];
             while (item) {
                 if (item->last_accessed < lru_time) {
                     lru_time = item->last_accessed;
                     lru = item;
-                } else if (item->last_accessed == lru_time && item < lru) {
-                    // Tie-breaker: prefer lower memory address to avoid loops
-                    lru = item;
+                    lru_index = i;
                 }
                 item = item->next;
             }
         }
 
         if (lru && lru->key) {
-            // Attempt to remove the LRU item
-            hash_table_remove(ht, lru->key);
+            char *key_copy = my_strdup(lru->key);
+            if (!key_copy) break;
+            unsigned int items_before = current_items;
+            hash_table_remove(ht, key_copy);
+            free(key_copy);
+            // Verify removal actually happened
+            if (hash_table_search(ht, lru->key) != NULL) {
+                break; // Removal failed, exit to prevent infinite loop
+            }
             current_items--;
             cached_item_count = current_items;
             eviction_attempts++;
         } else {
-            // No removable items found, break to prevent infinite loop
             break;
         }
     }
