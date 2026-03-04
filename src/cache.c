@@ -29,7 +29,7 @@ void free_cache(void)
 {
     if (memory_cache)
     {
-        free_hash_table(memory_cache);
+        free_hash_table(memory_cache); memory_cache = NULL;
         memory_cache = NULL;
 
         // Destroy mutexes
